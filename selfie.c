@@ -6450,7 +6450,10 @@ uint64_t* do_switch(uint64_t* from_context, uint64_t* to_context, uint64_t timeo
   else
     *(registers + REG_A6) = (uint64_t) from_context;
 
-  timer = timeout;
+  if(symbolic)
+    timer = max_execution_depth - get_execution_depth(to_context);
+  else
+    timer = timeout;
 
   if (debug_switch) {
     printf3("%s: switched from context %p to context %p", selfie_name,
@@ -8743,12 +8746,12 @@ uint64_t handle_timer(uint64_t* context) {
   set_exception(context, EXCEPTION_NOEXCEPTION);
 
   if (symbolic) {
-    print("(push 1)\n");
+    print(";(push 1)\n");
 
-    printf1("(assert (not %s)); timeout in ", path_condition);
+    printf1(";(assert (not %s)); timeout in ", path_condition);
     print_code_context_for_instruction(pc);
 
-    print("\n(check-sat)\n(get-model)\n(pop 1)\n");
+    print("\n;(check-sat)\n;(get-model)\n;(pop 1)\n");
 
     return EXIT;
   } else
