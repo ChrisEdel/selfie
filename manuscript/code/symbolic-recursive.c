@@ -6,7 +6,7 @@
 
    SMT-Solver finds the solution 4. The fourth fibonacci number
    is 3, so 4 is the correct solution.
-   (command: ./selfie -c manuscript/code/symbolic-recursive.c -n 300)
+   (command: './selfie -c manuscript/code/symbolic-recursive.c -n 300')
 */
 
 uint64_t main() {
@@ -22,7 +22,7 @@ uint64_t main() {
   if (a == 3)
     return 1;
   else
-  	return 0;
+    return 0;
 }
 
 uint64_t fib(uint64_t n) {  

@@ -5,7 +5,7 @@
    with a non-zero exit code. 
 
    SMT-Solver finds the solutions (0, 3), (1, 2), (2, 1),  (3, 0).
-   (command: ./selfie -c manuscript/code/symbolic-nested-loop.c -n 200)
+   (command: './selfie -c manuscript/code/symbolic-nested-loop.c -n 200')
 */
 
 uint64_t main() {

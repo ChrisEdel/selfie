@@ -28,5 +28,5 @@ uint64_t main() {
   if (a == 8)
     return 1;
   else
-  	return 0;
+    return 0;
 }
