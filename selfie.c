@@ -6450,10 +6450,7 @@ uint64_t* do_switch(uint64_t* from_context, uint64_t* to_context, uint64_t timeo
   else
     *(registers + REG_A6) = (uint64_t) from_context;
 
-  if(symbolic)
-    timer = max_execution_depth - get_execution_depth(to_context);
-  else
-    timer = timeout;
+  timer = timeout;
 
   if (debug_switch) {
     printf3("%s: switched from context %p to context %p", selfie_name,
@@ -9021,7 +9018,7 @@ uint64_t monster(uint64_t* to_context) {
   timeout = max_execution_depth;
 
   while (1) {
-    from_context = mipster_switch(to_context, timeout);
+    from_context = mipster_switch(to_context, max_execution_depth - get_execution_depth(to_context));
 
     if (get_parent(from_context) != MY_CONTEXT) {
       // switch to parent which is in charge of handling exceptions
