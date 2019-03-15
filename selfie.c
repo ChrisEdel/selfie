@@ -1245,6 +1245,10 @@ uint64_t* reg_sym = (uint64_t*) 0; // symbolic values in registers as strings in
 char*    smt_name = (char*) 0; // name of SMT-LIB file
 uint64_t smt_fd   = 0;         // file descriptor of open SMT-LIB file
 
+// ------------------------ GLOBAL CONSTANTS -----------------------
+
+uint64_t BEQ_LIMIT = 20;  // limit of symbolic beq instructions on any given path
+
 // -----------------------------------------------------------------
 // -------------------------- INTERPRETER --------------------------
 // -----------------------------------------------------------------
@@ -1414,6 +1418,7 @@ uint64_t* delete_context(uint64_t* context, uint64_t* from);
 // | 18 | symbolic memory | pointer to symbolic memory
 // | 19 | symbolic regs   | pointer to symbolic registers
 // | 20 | related context | pointer to list of contexts of related branches
+// | 21 | beq counter     | number of executed symbolic beq instructions
 // +----+-----------------+
 
 uint64_t* allocate_context() {
@@ -1421,7 +1426,7 @@ uint64_t* allocate_context() {
 }
 
 uint64_t* allocate_symbolic_context() {
-  return smalloc(7 * SIZEOFUINT64STAR + 9 * SIZEOFUINT64 + 4 * SIZEOFUINT64STAR + 1 * SIZEOFUINT64);
+  return smalloc(7 * SIZEOFUINT64STAR + 9 * SIZEOFUINT64 + 4 * SIZEOFUINT64STAR + 2 * SIZEOFUINT64);
 }
 
 uint64_t next_context(uint64_t* context)    { return (uint64_t) context; }
@@ -1463,6 +1468,7 @@ char*     get_path_condition(uint64_t* context)  { return (char*)     *(context 
 uint64_t* get_symbolic_memory(uint64_t* context) { return (uint64_t*) *(context + 18); }
 uint64_t* get_symbolic_regs(uint64_t* context)   { return (uint64_t*) *(context + 19); }
 uint64_t* get_related_context(uint64_t* context) { return (uint64_t*) *(context + 20); }
+uint64_t  get_beq_counter(uint64_t* context)     { return             *(context + 21); }
 
 void set_next_context(uint64_t* context, uint64_t* next)      { *context        = (uint64_t) next; }
 void set_prev_context(uint64_t* context, uint64_t* prev)      { *(context + 1)  = (uint64_t) prev; }
@@ -1486,6 +1492,7 @@ void set_path_condition(uint64_t* context, char* path)         { *(context + 17)
 void set_symbolic_memory(uint64_t* context, uint64_t* memory)  { *(context + 18) = (uint64_t) memory; }
 void set_symbolic_regs(uint64_t* context, uint64_t* regs)      { *(context + 19) = (uint64_t) regs; }
 void set_related_context(uint64_t* context, uint64_t* related) { *(context + 20) = (uint64_t) related; }
+void set_beq_counter(uint64_t* context, uint64_t counter)      { *(context + 21) =            counter; }
 
 // -----------------------------------------------------------------
 // -------------------------- MICROKERNEL --------------------------
@@ -7172,10 +7179,15 @@ void constrain_beq() {
   print_code_context_for_instruction(pc);
   println();
 
-  copy_context(current_context,
-    pc + INSTRUCTIONSIZE,
-    smt_binary("and", pvar, smt_unary("not", bvar)),
-    max_execution_depth - timer);
+  set_beq_counter(current_context, get_beq_counter(current_context) + 1);
+
+  // if the limit of symbolic beq instructions is reached, the path still continues until 
+  // maximal execution depth, but only by following the true case of the next encountered symbolic beq instructions
+  if(get_beq_counter(current_context) < BEQ_LIMIT) 
+    copy_context(current_context,
+      pc + INSTRUCTIONSIZE,
+      smt_binary("and", pvar, smt_unary("not", bvar)),
+      max_execution_depth - timer);
 
   path_condition = smt_binary("and", pvar, bvar);
 
@@ -8227,6 +8239,7 @@ void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt) {
     set_symbolic_memory(context, (uint64_t*) 0);
     set_symbolic_regs(context, zalloc(NUMBEROFREGISTERS * REGISTERSIZE));
     set_related_context(context, (uint64_t*) 0);
+    set_beq_counter(context, 0);
   }
 }
 
@@ -8263,6 +8276,7 @@ void copy_context(uint64_t* original, uint64_t location, char* condition, uint64
   set_execution_depth(context, depth);
   set_path_condition(context, condition);
   set_symbolic_memory(context, symbolic_memory);
+  set_beq_counter(context, get_beq_counter(original));
 
   set_symbolic_regs(context, smalloc(NUMBEROFREGISTERS * REGISTERSIZE));
 
@@ -8743,12 +8757,12 @@ uint64_t handle_timer(uint64_t* context) {
   set_exception(context, EXCEPTION_NOEXCEPTION);
 
   if (symbolic) {
-    print("(push 1)\n");
+    print(";(push 1)\n");
 
-    printf1("(assert (not %s)); timeout in ", path_condition);
+    printf1(";(assert (not %s)); timeout in ", path_condition);
     print_code_context_for_instruction(pc);
 
-    print("\n(check-sat)\n(get-model)\n(pop 1)\n");
+    print("\n;(check-sat)\n;(get-model)\n;(pop 1)\n");
 
     return EXIT;
   } else
@@ -9015,7 +9029,7 @@ uint64_t monster(uint64_t* to_context) {
   print("(set-option :incremental true)\n");
   print("(set-logic QF_BV)\n\n");
 
-  timeout = max_execution_depth;
+  timeout = max_execution_depth - get_execution_depth(to_context);
 
   while (1) {
     from_context = mipster_switch(to_context, timeout);
@@ -9030,7 +9044,7 @@ uint64_t monster(uint64_t* to_context) {
         if (symbolic_contexts) {
           to_context = symbolic_contexts;
 
-          timeout = get_execution_depth(to_context);
+          timeout = max_execution_depth - get_execution_depth(to_context);
 
           symbolic_contexts = get_related_context(symbolic_contexts);
         } else {
