@@ -1451,6 +1451,7 @@ uint64_t* delete_context(uint64_t* context, uint64_t* from);
 // | 19 | symbolic regs   | pointer to symbolic registers
 // | 20 | related context | pointer to list of contexts of related branches
 // | 21 | beq counter     | number of executed symbolic beq instructions
+// | 22 | merge context   | pointer to a context with which this context can (probably) be merged later
 // +----+-----------------+
 
 uint64_t* allocate_context() {
@@ -1458,7 +1459,7 @@ uint64_t* allocate_context() {
 }
 
 uint64_t* allocate_symbolic_context() {
-  return smalloc(7 * SIZEOFUINT64STAR + 9 * SIZEOFUINT64 + 4 * SIZEOFUINT64STAR + 2 * SIZEOFUINT64);
+  return smalloc(7 * SIZEOFUINT64STAR + 9 * SIZEOFUINT64 + 5 * SIZEOFUINT64STAR + 2 * SIZEOFUINT64);
 }
 
 uint64_t next_context(uint64_t* context)    { return (uint64_t) context; }
@@ -1501,6 +1502,7 @@ uint64_t* get_symbolic_memory(uint64_t* context) { return (uint64_t*) *(context 
 uint64_t* get_symbolic_regs(uint64_t* context)   { return (uint64_t*) *(context + 19); }
 uint64_t* get_related_context(uint64_t* context) { return (uint64_t*) *(context + 20); }
 uint64_t  get_beq_counter(uint64_t* context)     { return             *(context + 21); }
+uint64_t* get_merge_context(uint64_t* context)   { return (uint64_t*) *(context + 22); }
 
 void set_next_context(uint64_t* context, uint64_t* next)      { *context        = (uint64_t) next; }
 void set_prev_context(uint64_t* context, uint64_t* prev)      { *(context + 1)  = (uint64_t) prev; }
@@ -1525,6 +1527,7 @@ void set_symbolic_memory(uint64_t* context, uint64_t* memory)  { *(context + 18)
 void set_symbolic_regs(uint64_t* context, uint64_t* regs)      { *(context + 19) = (uint64_t) regs; }
 void set_related_context(uint64_t* context, uint64_t* related) { *(context + 20) = (uint64_t) related; }
 void set_beq_counter(uint64_t* context, uint64_t counter)      { *(context + 21) =            counter; }
+void set_merge_context(uint64_t* context, uint64_t* merge)     { *(context + 22) = (uint64_t) merge; }
 
 // -----------------------------------------------------------------
 // -------------------------- MICROKERNEL --------------------------
@@ -8270,6 +8273,7 @@ void copy_context(uint64_t* original, uint64_t location, char* condition, uint64
   set_path_condition(context, condition);
   set_symbolic_memory(context, symbolic_memory);
   set_beq_counter(context, get_beq_counter(original));
+  set_merge_context(context, original);
 
   set_symbolic_regs(context, smalloc(NUMBEROFREGISTERS * REGISTERSIZE));
 
