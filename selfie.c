@@ -1315,6 +1315,7 @@ uint64_t EXCEPTION_TIMER              = 3;
 uint64_t EXCEPTION_INVALIDADDRESS     = 4;
 uint64_t EXCEPTION_DIVISIONBYZERO     = 5;
 uint64_t EXCEPTION_UNKNOWNINSTRUCTION = 6;
+uint64_t EXCEPTION_MERGE_TIMER        = 7;
 
 uint64_t* EXCEPTIONS; // strings representing exceptions
 
@@ -1381,6 +1382,7 @@ void init_interpreter() {
   *(EXCEPTIONS + EXCEPTION_INVALIDADDRESS)     = (uint64_t) "invalid address";
   *(EXCEPTIONS + EXCEPTION_DIVISIONBYZERO)     = (uint64_t) "division by zero";
   *(EXCEPTIONS + EXCEPTION_UNKNOWNINSTRUCTION) = (uint64_t) "unknown instruction";
+  *(EXCEPTIONS + EXCEPTION_MERGE_TIMER)        = (uint64_t) "merge timer interrupt";
 }
 
 void reset_interpreter() {
@@ -1588,6 +1590,7 @@ uint64_t handle_system_call(uint64_t* context);
 uint64_t handle_page_fault(uint64_t* context);
 uint64_t handle_division_by_zero(uint64_t* context);
 uint64_t handle_timer(uint64_t* context);
+uint64_t handle_merge_timer(uint64_t* context);
 
 uint64_t handle_exception(uint64_t* context);
 
@@ -7988,7 +7991,11 @@ void interrupt() {
         // trigger timer in the next interrupt cycle
         timer = 1;
     }
-  }
+
+    if(symbolic) {
+    	if(get_merge_counter(current_context) == 0)
+        	throw_exception(EXCEPTION_MERGE_TIMER, 0);
+    }
 }
 
 void run_until_exception() {
@@ -8790,6 +8797,8 @@ uint64_t handle_exception(uint64_t* context) {
     return handle_division_by_zero(context);
   else if (exception == EXCEPTION_TIMER)
     return handle_timer(context);
+  else if (exception == EXCEPTION_MERGE_TIMER)
+    return handle_merge_timer(context);
   else {
     printf2("%s: context %s throws uncaught ", selfie_name, get_name(context));
     print_exception(exception, get_faulting_page(context));
