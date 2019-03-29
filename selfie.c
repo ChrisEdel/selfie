@@ -1419,7 +1419,7 @@ void reset_interpreter() {
 uint64_t* new_context();
 
 void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt);
-void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth, uint64_t merge_counter);
+void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth, uint64_t merge_timer);
 
 uint64_t* find_context(uint64_t* parent, uint64_t* vctxt);
 
@@ -1454,7 +1454,7 @@ uint64_t* delete_context(uint64_t* context, uint64_t* from);
 // | 20 | related context | pointer to list of contexts of related branches
 // | 21 | beq counter     | number of executed symbolic beq instructions
 // | 22 | merge context   | pointer to a context with which this context can (probably) be merged later
-// | 23 | merge counter   | a counter that indicates how many instructions are required before a merge is possible
+// | 23 | merge timer     | a timer that indicates how many instructions are required before a merge is possible
 // +----+-----------------+
 
 uint64_t* allocate_context() {
@@ -1506,7 +1506,7 @@ uint64_t* get_symbolic_regs(uint64_t* context)   { return (uint64_t*) *(context 
 uint64_t* get_related_context(uint64_t* context) { return (uint64_t*) *(context + 20); }
 uint64_t  get_beq_counter(uint64_t* context)     { return             *(context + 21); }
 uint64_t* get_merge_context(uint64_t* context)   { return (uint64_t*) *(context + 22); }
-uint64_t  get_merge_counter(uint64_t* context)   { return             *(context + 23); }
+uint64_t  get_merge_timer(uint64_t* context)   { return             *(context + 23); }
 
 void set_next_context(uint64_t* context, uint64_t* next)      { *context        = (uint64_t) next; }
 void set_prev_context(uint64_t* context, uint64_t* prev)      { *(context + 1)  = (uint64_t) prev; }
@@ -1532,7 +1532,7 @@ void set_symbolic_regs(uint64_t* context, uint64_t* regs)      { *(context + 19)
 void set_related_context(uint64_t* context, uint64_t* related) { *(context + 20) = (uint64_t) related; }
 void set_beq_counter(uint64_t* context, uint64_t counter)      { *(context + 21) =            counter; }
 void set_merge_context(uint64_t* context, uint64_t* merge)     { *(context + 22) = (uint64_t) merge; }
-void set_merge_counter(uint64_t* context, uint64_t counter)    { *(context + 23) =            counter; }
+void set_merge_timer(uint64_t* context, uint64_t timer)        { *(context + 23) =            timer; }
 
 // -----------------------------------------------------------------
 // -------------------------- MICROKERNEL --------------------------
@@ -7991,11 +7991,11 @@ void interrupt() {
         // trigger timer in the next interrupt cycle
         timer = 1;
     }
+  }
 
-    if(symbolic) {
-    	if(get_merge_counter(current_context) == 0)
-        	throw_exception(EXCEPTION_MERGE_TIMER, 0);
-    }
+  if(symbolic)
+    if(get_merge_timer(current_context) == 0)
+      throw_exception(EXCEPTION_MERGE_TIMER, 0);
 }
 
 void run_until_exception() {
@@ -8256,7 +8256,7 @@ void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt) {
   }
 }
 
-void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth, uint64_t merge_counter) {
+void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth, uint64_t merge_timer) {
   uint64_t* context;
   uint64_t r;
 
@@ -8291,7 +8291,7 @@ void copy_context(uint64_t* original, uint64_t location, char* condition, uint64
   set_symbolic_memory(context, symbolic_memory);
   set_beq_counter(context, get_beq_counter(original));
   set_merge_context(context, original);
-  set_merge_counter(context, merge_counter);
+  set_merge_timer(context, merge_timer);
 
   set_symbolic_regs(context, smalloc(NUMBEROFREGISTERS * REGISTERSIZE));
 
@@ -8782,6 +8782,11 @@ uint64_t handle_timer(uint64_t* context) {
     return EXIT;
   } else
     return DONOTEXIT;
+}
+
+uint64_t handle_merge_timer(uint64_t* context) {
+  //TODO
+  return 0;
 }
 
 uint64_t handle_exception(uint64_t* context) {
