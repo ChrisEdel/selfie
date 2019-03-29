@@ -7216,17 +7216,23 @@ void constrain_beq() {
 
   set_beq_counter(current_context, get_beq_counter(current_context) + 1);
 
-  // if the limit of symbolic beq instructions is reached, the path still continues until 
-  // maximal execution depth, but only by following the true case of the next encountered symbolic beq instructions
-  if(get_beq_counter(current_context) < BEQ_LIMIT) 
+  
+  if(get_beq_counter(current_context) < BEQ_LIMIT) {
     copy_context(current_context,
-      pc + INSTRUCTIONSIZE,
-      smt_binary("and", pvar, smt_unary("not", bvar)),
+      pc + imm,
+      smt_binary("and", pvar, bvar),
       max_execution_depth - timer);
 
-  path_condition = smt_binary("and", pvar, bvar);
+    path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
 
-  pc = pc + imm;
+    pc = pc + INSTRUCTIONSIZE;
+  } else {
+    // if the limit of symbolic beq instructions is reached, the path still continues until 
+    // maximal execution depth, but only by following the true case of the next encountered symbolic beq instructions
+    path_condition = smt_binary("and", pvar, bvar);
+
+    pc = pc + imm;
+  }
 }
 
 void print_jal() {
