@@ -1462,7 +1462,7 @@ uint64_t* allocate_context() {
 }
 
 uint64_t* allocate_symbolic_context() {
-  return smalloc(7 * SIZEOFUINT64STAR + 9 * SIZEOFUINT64 + 5 * SIZEOFUINT64STAR + 3 * SIZEOFUINT64);
+  return smalloc(7 * SIZEOFUINT64STAR + 9 * SIZEOFUINT64 + 5 * SIZEOFUINT64STAR + 4 * SIZEOFUINT64);
 }
 
 uint64_t next_context(uint64_t* context)    { return (uint64_t) context; }
@@ -7984,8 +7984,16 @@ void interrupt() {
   if (timer != TIMEROFF) {
     timer = timer - 1;
 
-    if(symbolic)
+    if(symbolic) {
       set_merge_timer(current_context, get_merge_timer(current_context) - 1);
+      if(*(current_context + 24) == 1) {
+        if(get_pc(current_context) == get_pc(get_merge_context(current_context))) {
+          path_condition = smt_binary("or", get_path_condition(current_context), get_path_condition(get_merge_context(current_context)));
+          *(current_context + 24) = 0;
+          symbolic_contexts = 0;
+        }
+      }
+    }
 
     if (timer == 0) {
       if (get_exception(current_context) == EXCEPTION_NOEXCEPTION)
@@ -9100,6 +9108,9 @@ uint64_t monster(uint64_t* to_context) {
         }
       } else if (exception == MERGE) {
         to_context = get_merge_context(from_context);
+        set_merge_context(to_context, from_context);
+        *(to_context + 24) = 1;
+
 
         timeout = max_execution_depth - get_execution_depth(to_context);
       }
