@@ -1419,7 +1419,7 @@ void reset_interpreter() {
 uint64_t* new_context();
 
 void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt);
-void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth);
+uint64_t* copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth);
 
 uint64_t* find_context(uint64_t* parent, uint64_t* vctxt);
 
@@ -7225,10 +7225,10 @@ void constrain_beq() {
 
   
   if(get_beq_counter(current_context) < BEQ_LIMIT) {
-    copy_context(current_context,
+    set_merge_context(current_context, copy_context(current_context,
       pc + imm,
       smt_binary("and", pvar, bvar),
-      max_execution_depth - timer);
+      max_execution_depth - timer));
 
     path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
     
@@ -8269,7 +8269,7 @@ void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt) {
   }
 }
 
-void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth) {
+uint64_t* copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth) {
   uint64_t* context;
   uint64_t r;
 
@@ -8303,7 +8303,6 @@ void copy_context(uint64_t* original, uint64_t location, char* condition, uint64
   set_path_condition(context, condition);
   set_symbolic_memory(context, symbolic_memory);
   set_beq_counter(context, get_beq_counter(original));
-  set_merge_context(context, original);
 
   set_symbolic_regs(context, smalloc(NUMBEROFREGISTERS * REGISTERSIZE));
 
@@ -8318,6 +8317,8 @@ void copy_context(uint64_t* original, uint64_t location, char* condition, uint64
   set_related_context(context, symbolic_contexts);
 
   symbolic_contexts = context;
+
+  return context;
 }
 
 uint64_t* find_context(uint64_t* parent, uint64_t* vctxt) {
@@ -9098,10 +9099,9 @@ uint64_t monster(uint64_t* to_context) {
           return EXITCODE_NOERROR;
         }
       } else if (exception == MERGE) {
-        //TODO: switch to mergable context
-        timeout = timer;
+        to_context = get_merge_context(from_context);
 
-        to_context = from_context;
+        timeout = max_execution_depth - get_execution_depth(to_context);
       }
 
        else {
