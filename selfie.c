@@ -1419,7 +1419,7 @@ void reset_interpreter() {
 uint64_t* new_context();
 
 void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt);
-void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth, uint64_t merge_timer);
+void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth);
 
 uint64_t* find_context(uint64_t* parent, uint64_t* vctxt);
 
@@ -1506,7 +1506,7 @@ uint64_t* get_symbolic_regs(uint64_t* context)   { return (uint64_t*) *(context 
 uint64_t* get_related_context(uint64_t* context) { return (uint64_t*) *(context + 20); }
 uint64_t  get_beq_counter(uint64_t* context)     { return             *(context + 21); }
 uint64_t* get_merge_context(uint64_t* context)   { return (uint64_t*) *(context + 22); }
-uint64_t  get_merge_timer(uint64_t* context)   { return             *(context + 23); }
+uint64_t  get_merge_timer(uint64_t* context)     { return             *(context + 23); }
 
 void set_next_context(uint64_t* context, uint64_t* next)      { *context        = (uint64_t) next; }
 void set_prev_context(uint64_t* context, uint64_t* prev)      { *(context + 1)  = (uint64_t) prev; }
@@ -1618,6 +1618,7 @@ uint64_t* MY_CONTEXT = (uint64_t*) 0;
 
 uint64_t DONOTEXIT = 0;
 uint64_t EXIT      = 1;
+uint64_t MERGE     = 2;
 
 uint64_t EXITCODE_NOERROR                = 0;
 uint64_t EXITCODE_BADARGUMENTS           = 1;
@@ -7227,10 +7228,11 @@ void constrain_beq() {
     copy_context(current_context,
       pc + imm,
       smt_binary("and", pvar, bvar),
-      max_execution_depth - timer,
-      imm);
+      max_execution_depth - timer);
 
     path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
+    
+    set_merge_timer(current_context, imm/4);
 
     pc = pc + INSTRUCTIONSIZE;
   } else {
@@ -7982,6 +7984,9 @@ void interrupt() {
   if (timer != TIMEROFF) {
     timer = timer - 1;
 
+    if(symbolic)
+      set_merge_timer(current_context, get_merge_timer(current_context) - 1);
+
     if (timer == 0) {
       if (get_exception(current_context) == EXCEPTION_NOEXCEPTION)
         // only throw exception if no other is pending
@@ -7991,11 +7996,18 @@ void interrupt() {
         // trigger timer in the next interrupt cycle
         timer = 1;
     }
+    if(symbolic) {
+      if (get_merge_timer(current_context) == 0) {
+        if (get_exception(current_context) == EXCEPTION_NOEXCEPTION)
+          // only throw exception if no other is pending
+          // TODO: handle multiple pending exceptions
+          throw_exception(EXCEPTION_MERGE_TIMER, 0);
+        else {
+          // TODO
+        }
+      }
+    }
   }
-
-  if(symbolic)
-    if(get_merge_timer(current_context) == 0)
-      throw_exception(EXCEPTION_MERGE_TIMER, 0);
 }
 
 void run_until_exception() {
@@ -8253,10 +8265,11 @@ void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt) {
     set_symbolic_regs(context, zalloc(NUMBEROFREGISTERS * REGISTERSIZE));
     set_related_context(context, (uint64_t*) 0);
     set_beq_counter(context, 0);
+    set_merge_timer(context, TIMESLICE);
   }
 }
 
-void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth, uint64_t merge_timer) {
+void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth) {
   uint64_t* context;
   uint64_t r;
 
@@ -8291,7 +8304,6 @@ void copy_context(uint64_t* original, uint64_t location, char* condition, uint64
   set_symbolic_memory(context, symbolic_memory);
   set_beq_counter(context, get_beq_counter(original));
   set_merge_context(context, original);
-  set_merge_timer(context, merge_timer);
 
   set_symbolic_regs(context, smalloc(NUMBEROFREGISTERS * REGISTERSIZE));
 
@@ -8785,8 +8797,9 @@ uint64_t handle_timer(uint64_t* context) {
 }
 
 uint64_t handle_merge_timer(uint64_t* context) {
-  //TODO
-  return 0;
+  set_exception(context, EXCEPTION_NOEXCEPTION);
+
+  return MERGE;
 }
 
 uint64_t handle_exception(uint64_t* context) {
@@ -8802,8 +8815,9 @@ uint64_t handle_exception(uint64_t* context) {
     return handle_division_by_zero(context);
   else if (exception == EXCEPTION_TIMER)
     return handle_timer(context);
-  else if (exception == EXCEPTION_MERGE_TIMER)
+  else if (exception == EXCEPTION_MERGE_TIMER) {
     return handle_merge_timer(context);
+  }
   else {
     printf2("%s: context %s throws uncaught ", selfie_name, get_name(context));
     print_exception(exception, get_faulting_page(context));
@@ -9022,6 +9036,7 @@ char* replace_extension(char* filename, uint64_t e) {
 uint64_t monster(uint64_t* to_context) {
   uint64_t timeout;
   uint64_t* from_context;
+  uint64_t exception;
 
   print("monster\n");
 
@@ -9062,7 +9077,8 @@ uint64_t monster(uint64_t* to_context) {
 
       timeout = TIMEROFF;
     } else {
-      if (handle_exception(from_context) == EXIT) {
+      exception = handle_exception(from_context);
+      if (exception == EXIT) {
         if (symbolic_contexts) {
           to_context = symbolic_contexts;
 
@@ -9081,7 +9097,14 @@ uint64_t monster(uint64_t* to_context) {
 
           return EXITCODE_NOERROR;
         }
-      } else {
+      } else if (exception == MERGE) {
+        //TODO: switch to mergable context
+        timeout = timer;
+
+        to_context = from_context;
+      }
+
+       else {
         timeout = timer;
 
         to_context = from_context;
