@@ -1455,6 +1455,7 @@ uint64_t* delete_context(uint64_t* context, uint64_t* from);
 // | 21 | beq counter     | number of executed symbolic beq instructions
 // | 22 | merge context   | pointer to a context with which this context can (probably) be merged later
 // | 23 | merge timer     | a timer that indicates how many instructions are required before a merge is possible
+// | 24 | mergable        | boolean value; 1 if a merge partner is waiting, 0 otherwise
 // +----+-----------------+
 
 uint64_t* allocate_context() {
@@ -1507,6 +1508,7 @@ uint64_t* get_related_context(uint64_t* context) { return (uint64_t*) *(context 
 uint64_t  get_beq_counter(uint64_t* context)     { return             *(context + 21); }
 uint64_t* get_merge_context(uint64_t* context)   { return (uint64_t*) *(context + 22); }
 uint64_t  get_merge_timer(uint64_t* context)     { return             *(context + 23); }
+uint64_t  get_mergable(uint64_t* context)        { return             *(context + 24); }
 
 void set_next_context(uint64_t* context, uint64_t* next)      { *context        = (uint64_t) next; }
 void set_prev_context(uint64_t* context, uint64_t* prev)      { *(context + 1)  = (uint64_t) prev; }
@@ -1533,6 +1535,7 @@ void set_related_context(uint64_t* context, uint64_t* related) { *(context + 20)
 void set_beq_counter(uint64_t* context, uint64_t counter)      { *(context + 21) =            counter; }
 void set_merge_context(uint64_t* context, uint64_t* merge)     { *(context + 22) = (uint64_t) merge; }
 void set_merge_timer(uint64_t* context, uint64_t timer)        { *(context + 23) =            timer; }
+void set_mergable(uint64_t* context, uint64_t mergable)        { *(context + 24) =            mergable; }
 
 // -----------------------------------------------------------------
 // -------------------------- MICROKERNEL --------------------------
@@ -7986,11 +7989,11 @@ void interrupt() {
 
     if(symbolic) {
       set_merge_timer(current_context, get_merge_timer(current_context) - 1);
-      if(*(current_context + 24) == 1) {
+      if(get_mergable(current_context)) {
         if(get_pc(current_context) == get_pc(get_merge_context(current_context))) {
           path_condition = smt_binary("or", get_path_condition(current_context), get_path_condition(get_merge_context(current_context)));
-          *(current_context + 24) = 0;
-          symbolic_contexts = 0;
+          set_mergable(current_context, 0);
+          symbolic_contexts = 0; //TODO: delete just the merged context and not all contexts
         }
       }
     }
@@ -9108,14 +9111,12 @@ uint64_t monster(uint64_t* to_context) {
         }
       } else if (exception == MERGE) {
         to_context = get_merge_context(from_context);
+        
         set_merge_context(to_context, from_context);
-        *(to_context + 24) = 1;
-
+        set_mergable(to_context, 1);
 
         timeout = max_execution_depth - get_execution_depth(to_context);
-      }
-
-       else {
+      } else {
         timeout = timer;
 
         to_context = from_context;
