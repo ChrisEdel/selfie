@@ -1240,13 +1240,17 @@ uint64_t max_execution_depth = 1; // in number of instructions, unbounded with 0
 
 uint64_t variable_version = 0; // generates unique SMT-LIB variable names
 
-uint64_t find_merge_location = 0;
+uint64_t check_pause_location = 0;
+
+uint64_t* current_merge_context = (uint64_t*) 0;
 
 uint64_t* symbolic_contexts     = (uint64_t*) 0;
 
 uint64_t* mergeable_contexts    = (uint64_t*) 0;
 
 uint64_t* paused_contexts       = (uint64_t*) 0;
+
+uint64_t mergeable = 0;
 
 char* path_condition = (char*) 0;
 
@@ -1327,6 +1331,7 @@ uint64_t EXCEPTION_TIMER              = 3;
 uint64_t EXCEPTION_INVALIDADDRESS     = 4;
 uint64_t EXCEPTION_DIVISIONBYZERO     = 5;
 uint64_t EXCEPTION_UNKNOWNINSTRUCTION = 6;
+uint64_t EXCEPTION_PAUSE              = 7;
 
 uint64_t* EXCEPTIONS; // strings representing exceptions
 
@@ -1393,6 +1398,7 @@ void init_interpreter() {
   *(EXCEPTIONS + EXCEPTION_INVALIDADDRESS)     = (uint64_t) "invalid address";
   *(EXCEPTIONS + EXCEPTION_DIVISIONBYZERO)     = (uint64_t) "division by zero";
   *(EXCEPTIONS + EXCEPTION_UNKNOWNINSTRUCTION) = (uint64_t) "unknown instruction";
+  *(EXCEPTIONS + EXCEPTION_PAUSE)              = (uint64_t) "pause interrupt";
 }
 
 void reset_interpreter() {
@@ -1624,6 +1630,7 @@ uint64_t* MY_CONTEXT = (uint64_t*) 0;
 
 uint64_t DONOTEXIT = 0;
 uint64_t EXIT      = 1;
+uint64_t PAUSE     = 2;
 
 uint64_t EXITCODE_NOERROR                = 0;
 uint64_t EXITCODE_BADARGUMENTS           = 1;
@@ -6486,6 +6493,7 @@ void emit_switch() {
 uint64_t* do_switch(uint64_t* from_context, uint64_t* to_context, uint64_t timeout) {
   restore_context(to_context);
 
+
   // restore machine state
   pc        = get_pc(to_context);
   registers = get_regs(to_context);
@@ -6551,7 +6559,6 @@ void implement_switch() {
 
 uint64_t* mipster_switch(uint64_t* to_context, uint64_t timeout) {
   current_context = do_switch(current_context, to_context, timeout);
-
   run_until_exception();
 
   save_context(current_context);
@@ -7235,7 +7242,7 @@ void constrain_beq() {
       pc + imm,
       smt_binary("and", pvar, bvar),
       max_execution_depth - timer));
-    set_pause_location(current_context, pc + (imm - 1));
+    set_pause_location(current_context, pc + (imm - INSTRUCTIONSIZE));
   }
 
   path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
@@ -7635,7 +7642,7 @@ uint64_t* get_mergeable_context() {
   head = mergeable_contexts;
   mergeable_contexts = (uint64_t*) *(head + 0);
 
-  return head;
+  return (uint64_t*) *(head + 1);
 }
 
 void add_paused_context(uint64_t* context) {
@@ -7654,7 +7661,7 @@ uint64_t* get_paused_context() {
   head = paused_contexts;
   paused_contexts = (uint64_t*) *(head + 0);
 
-  return head;
+  return (uint64_t*) *(head + 1);
 }
 
 // -----------------------------------------------------------------
@@ -8034,7 +8041,7 @@ void interrupt() {
     //TODO: above or below the other if?
     if(symbolic) {
       if(pc == get_pause_location(current_context)) {
-        find_merge_location = 1;
+        check_pause_location = 1;
       }
     }
   }
@@ -8496,6 +8503,8 @@ void restore_context(uint64_t* context) {
   uint64_t me;
   uint64_t frame;
 
+
+
   if (get_parent(context) != MY_CONTEXT) {
     parent_table = get_pt(get_parent(context));
 
@@ -8827,6 +8836,13 @@ uint64_t handle_timer(uint64_t* context) {
     return DONOTEXIT;
 }
 
+uint64_t handle_pause(uint64_t* context) {
+  set_exception(context, EXCEPTION_NOEXCEPTION);
+  
+  return PAUSE;
+
+}
+
 uint64_t handle_exception(uint64_t* context) {
   uint64_t exception;
 
@@ -8840,6 +8856,8 @@ uint64_t handle_exception(uint64_t* context) {
     return handle_division_by_zero(context);
   else if (exception == EXCEPTION_TIMER)
     return handle_timer(context);
+  else if (exception == EXCEPTION_PAUSE)
+    return handle_pause(context);
   else {
     printf2("%s: context %s throws uncaught ", selfie_name, get_name(context));
     print_exception(exception, get_faulting_page(context));
@@ -9058,6 +9076,7 @@ char* replace_extension(char* filename, uint64_t e) {
 uint64_t monster(uint64_t* to_context) {
   uint64_t timeout;
   uint64_t* from_context;
+  uint64_t exception;
 
   print("monster\n");
 
@@ -9098,7 +9117,8 @@ uint64_t monster(uint64_t* to_context) {
 
       timeout = TIMEROFF;
     } else {
-      if (handle_exception(from_context) == EXIT) {
+      exception = handle_exception(from_context);
+      if (exception == EXIT) {
         if (symbolic_contexts) {
           to_context = symbolic_contexts;
 
@@ -9117,6 +9137,13 @@ uint64_t monster(uint64_t* to_context) {
 
           return EXITCODE_NOERROR;
         }
+      } else if (exception == PAUSE) {
+        
+        add_paused_context(from_context);
+        to_context = get_mergeable_context();
+        timeout = max_execution_depth - get_execution_depth(to_context);
+        symbolic_contexts = 0;
+        current_merge_context = from_context;
       } else {
         timeout = timer;
 
