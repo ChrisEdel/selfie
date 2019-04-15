@@ -1240,6 +1240,8 @@ uint64_t max_execution_depth = 1; // in number of instructions, unbounded with 0
 
 uint64_t variable_version = 0; // generates unique SMT-LIB variable names
 
+uint64_t find_merge_location = 0;
+
 uint64_t* symbolic_contexts     = (uint64_t*) 0;
 
 uint64_t* mergeable_contexts    = (uint64_t*) 0;
@@ -1426,8 +1428,8 @@ void reset_interpreter() {
 
 uint64_t* new_context();
 
-void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt);
-void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth);
+void      init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt);
+uint64_t* copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth);
 
 uint64_t* find_context(uint64_t* parent, uint64_t* vctxt);
 
@@ -7228,11 +7230,13 @@ void constrain_beq() {
 
   // if the limit of symbolic beq instructions is reached, the path still continues until 
   // maximal execution depth, but only by following the true case of the next encountered symbolic beq instructions
-  if(get_beq_counter(current_context) < BEQ_LIMIT) 
-    copy_context(current_context,
+  if(get_beq_counter(current_context) < BEQ_LIMIT) {
+    add_mergeable_context(copy_context(current_context,
       pc + imm,
       smt_binary("and", pvar, bvar),
-      max_execution_depth - timer);
+      max_execution_depth - timer));
+    set_pause_location(current_context, pc + (imm - 1));
+  }
 
   path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
 
@@ -8026,6 +8030,13 @@ void interrupt() {
         // trigger timer in the next interrupt cycle
         timer = 1;
     }
+
+    //TODO: above or below the other if?
+    if(symbolic) {
+      if(pc == get_pause_location(current_context)) {
+        find_merge_location = 1;
+      }
+    }
   }
 }
 
@@ -8287,7 +8298,7 @@ void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt) {
   }
 }
 
-void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth) {
+uint64_t* copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth) {
   uint64_t* context;
   uint64_t r;
 
@@ -8321,6 +8332,7 @@ void copy_context(uint64_t* original, uint64_t location, char* condition, uint64
   set_path_condition(context, condition);
   set_symbolic_memory(context, symbolic_memory);
   set_beq_counter(context, get_beq_counter(original));
+  set_pause_location(context, get_pause_location(original));
 
   set_symbolic_regs(context, smalloc(NUMBEROFREGISTERS * REGISTERSIZE));
 
@@ -8335,6 +8347,8 @@ void copy_context(uint64_t* original, uint64_t location, char* condition, uint64
   set_related_context(context, symbolic_contexts);
 
   symbolic_contexts = context;
+
+  return context;
 }
 
 uint64_t* find_context(uint64_t* parent, uint64_t* vctxt) {
