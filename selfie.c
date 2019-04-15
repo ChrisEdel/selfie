@@ -1242,13 +1242,13 @@ uint64_t variable_version = 0; // generates unique SMT-LIB variable names
 
 uint64_t check_pause_location = 0;
 
-uint64_t* current_merge_context = (uint64_t*) 0;
-
 uint64_t* symbolic_contexts     = (uint64_t*) 0;
 
 uint64_t* mergeable_contexts    = (uint64_t*) 0;
 
 uint64_t* paused_contexts       = (uint64_t*) 0;
+
+uint64_t* current_merge_context = (uint64_t*) 0;
 
 uint64_t mergeable = 0;
 
@@ -7731,6 +7731,17 @@ void fetch() {
   // assert: is_valid_virtual_address(pc) == 1
   // assert: is_virtual_address_mapped(pt, pc) == 1
 
+  //TODO: relocate?
+  if(symbolic)
+    if(current_merge_context != (uint64_t*) 0)
+      if(pc == get_pc(current_merge_context)) {
+        //TODO: actual merge
+        print(";Merge at: ");
+        print_code_context_for_instruction(pc);
+        println();
+        current_merge_context = (uint64_t*) 0;
+      }
+
   if (pc % REGISTERSIZE == 0)
     ir = get_low_word(load_virtual_memory(pt, pc));
   else
@@ -8022,6 +8033,33 @@ void execute_symbolically() {
     do_lui();
   } else if (is == ECALL)
     do_ecall();
+
+  if(check_pause_location) {
+    check_pause_location = 0;
+    
+    // end of if withouf else
+    if (is != JAL) {
+      if (get_exception(current_context) == EXCEPTION_NOEXCEPTION) {
+        // only throw exception if no other is pending
+        // TODO: handle multiple pending exceptions
+        throw_exception(EXCEPTION_PAUSE, 0);
+      }
+    } else {
+      // end of if with else
+      if (imm >= 0) {
+        if (get_exception(current_context) == EXCEPTION_NOEXCEPTION) {
+          // only throw exception if no other is pending
+          // TODO: handle multiple pending exceptions
+          throw_exception(EXCEPTION_PAUSE, 0);
+        }
+      }
+      // end of loop body  
+      else {
+        //TODO: do not know if this is correct
+        set_pause_location(current_context, get_pause_location(current_context) + INSTRUCTIONSIZE);
+      }
+    }
+  }
 }
 
 void interrupt() {
@@ -8039,11 +8077,10 @@ void interrupt() {
     }
 
     //TODO: above or below the other if?
-    if(symbolic) {
-      if(pc == get_pause_location(current_context)) {
+    if(symbolic)
+      if(pc == get_pause_location(current_context))
         check_pause_location = 1;
-      }
-    }
+
   }
 }
 
@@ -8302,6 +8339,7 @@ void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt) {
     set_symbolic_regs(context, zalloc(NUMBEROFREGISTERS * REGISTERSIZE));
     set_related_context(context, (uint64_t*) 0);
     set_beq_counter(context, 0);
+    set_pause_location(context, -1);
   }
 }
 
@@ -9138,12 +9176,12 @@ uint64_t monster(uint64_t* to_context) {
           return EXITCODE_NOERROR;
         }
       } else if (exception == PAUSE) {
-        
         add_paused_context(from_context);
         to_context = get_mergeable_context();
+
         timeout = max_execution_depth - get_execution_depth(to_context);
-        symbolic_contexts = 0;
-        current_merge_context = from_context;
+
+        current_merge_context = get_paused_context();
       } else {
         timeout = timer;
 
