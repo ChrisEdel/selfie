@@ -1234,6 +1234,8 @@ uint64_t* get_mergeable_context();
 void      add_paused_context(uint64_t* context);
 uint64_t* get_paused_context();
 
+uint64_t is_end_of_loop(uint64_t location);
+
 // ------------------------ GLOBAL VARIABLES -----------------------
 
 uint64_t max_execution_depth = 1; // in number of instructions, unbounded with 0
@@ -7243,7 +7245,10 @@ void constrain_beq() {
       pc + imm,
       smt_binary("and", pvar, bvar),
       max_execution_depth - timer));
-    set_pause_location(current_context, pc + (imm - INSTRUCTIONSIZE));
+    if(is_end_of_loop(pc + (imm - INSTRUCTIONSIZE))) 
+      set_pause_location(current_context, pc + imm + INSTRUCTIONSIZE);
+    else
+      set_pause_location(current_context, pc + (imm - INSTRUCTIONSIZE));
 
     if(current_merge_context != (uint64_t*) 0) {
       add_paused_context(current_merge_context);
@@ -7672,6 +7677,34 @@ uint64_t* get_paused_context() {
   paused_contexts = (uint64_t*) *(head + 0);
 
   return (uint64_t*) *(head + 1);
+}
+
+uint64_t is_end_of_loop(uint64_t location) {
+  uint64_t temp_pc;
+  uint64_t temp_imm;
+  uint64_t is_end_of_loop;
+
+  temp_pc = pc;
+  temp_imm = imm;
+  
+  pc = location;
+
+  fetch();
+  decode();
+
+  if(is != JAL)
+    is_end_of_loop = 0;
+  else {
+    if(!signed_less_than(imm, 0))
+      is_end_of_loop = 0;
+    else
+      is_end_of_loop = 1;
+  }
+
+  pc = temp_pc;
+  imm = temp_imm;
+
+  return is_end_of_loop;
 }
 
 // -----------------------------------------------------------------
@@ -8107,8 +8140,9 @@ void interrupt() {
 
     //TODO: above or below the other if?
     if(symbolic)
-      if(pc == get_pause_location(current_context))
+      if(pc == get_pause_location(current_context)) {
         check_pause_location = 1;
+      }
 
   }
 }
