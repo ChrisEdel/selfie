@@ -7665,6 +7665,9 @@ void add_paused_context(uint64_t* context) {
 uint64_t* get_paused_context() {
   uint64_t* head;
 
+  if(paused_contexts == (uint64_t*) 0)
+    return (uint64_t*) 0;
+
   head = paused_contexts;
   paused_contexts = (uint64_t*) *(head + 0);
 
@@ -7737,17 +7740,34 @@ void throw_exception(uint64_t exception, uint64_t faulting_page) {
 void fetch() {
   // assert: is_valid_virtual_address(pc) == 1
   // assert: is_virtual_address_mapped(pt, pc) == 1
+  uint64_t merge;
+
+  merge = 1;
 
   //TODO: relocate?
-  if(symbolic)
-    if(current_merge_context != (uint64_t*) 0)
+  if(symbolic) {
+    if(current_merge_context != (uint64_t*) 0) {
       if(pc == get_pc(current_merge_context)) {
         //TODO: actual merge
         print(";Merge at: ");
         print_code_context_for_instruction(pc);
         println();
-        current_merge_context = (uint64_t*) 0;
-      }
+        while(merge) {
+          current_merge_context = get_paused_context();
+          if(current_merge_context != (uint64_t*) 0) {
+            if(pc == get_pc(current_merge_context)) {
+              //TODO: actual merge
+              print(";Merge at: ");
+              print_code_context_for_instruction(pc);
+              println();
+            } else
+              merge = 0;
+          } else
+            merge = 0;
+        }
+      }  
+    }
+  }
 
   if (pc % REGISTERSIZE == 0)
     ir = get_low_word(load_virtual_memory(pt, pc));
