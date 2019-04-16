@@ -7237,12 +7237,19 @@ void constrain_beq() {
 
   // if the limit of symbolic beq instructions is reached, the path still continues until 
   // maximal execution depth, but only by following the true case of the next encountered symbolic beq instructions
+  // TODO: combine merge and beq counter
   if(get_beq_counter(current_context) < BEQ_LIMIT) {
     add_mergeable_context(copy_context(current_context,
       pc + imm,
       smt_binary("and", pvar, bvar),
       max_execution_depth - timer));
     set_pause_location(current_context, pc + (imm - INSTRUCTIONSIZE));
+
+    if(current_merge_context != (uint64_t*) 0) {
+      add_paused_context(current_merge_context);
+      current_merge_context = (uint64_t*) 0;
+    }
+
   }
 
   path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
@@ -8033,11 +8040,11 @@ void execute_symbolically() {
     do_lui();
   } else if (is == ECALL)
     do_ecall();
-
+    
   if(check_pause_location) {
     check_pause_location = 0;
     
-    // end of if withouf else
+    // end of if without else
     if (is != JAL) {
       if (get_exception(current_context) == EXCEPTION_NOEXCEPTION) {
         // only throw exception if no other is pending
@@ -8046,7 +8053,7 @@ void execute_symbolically() {
       }
     } else {
       // end of if with else
-      if (imm >= 0) {
+      if (!signed_less_than(imm, 0)) {
         if (get_exception(current_context) == EXCEPTION_NOEXCEPTION) {
           // only throw exception if no other is pending
           // TODO: handle multiple pending exceptions
@@ -8056,10 +8063,12 @@ void execute_symbolically() {
       // end of loop body  
       else {
         //TODO: do not know if this is correct
-        set_pause_location(current_context, get_pause_location(current_context) + INSTRUCTIONSIZE);
+        //set_pause_location(current_context, get_pause_location(current_context) + INSTRUCTIONSIZE);
+       // set_pause_location(current_context, -1);
       }
     }
   }
+  
 }
 
 void interrupt() {
@@ -9176,7 +9185,6 @@ uint64_t monster(uint64_t* to_context) {
           return EXITCODE_NOERROR;
         }
       } else if (exception == PAUSE) {
-        add_paused_context(from_context);
         to_context = get_mergeable_context();
 
         timeout = max_execution_depth - get_execution_depth(to_context);
