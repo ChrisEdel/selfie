@@ -9185,6 +9185,7 @@ uint64_t monster(uint64_t* to_context) {
           return EXITCODE_NOERROR;
         }
       } else if (exception == PAUSE) {
+        add_paused_context(from_context);
         to_context = get_mergeable_context();
 
         timeout = max_execution_depth - get_execution_depth(to_context);
