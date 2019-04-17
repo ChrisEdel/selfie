@@ -1,6 +1,7 @@
 /*
-merge possible at instruction 0x1D0
-boolector solution: #b00000010
+merge possible at instruction 0x1F0
+boolector solution: #b00001100
+                    #b00000010
 */
 
 uint64_t main() {
@@ -14,6 +15,8 @@ uint64_t main() {
 
   if(*x == 2)
     a = a + *x;
+  else
+    a = a + (*x - 10);
 
   if(a == 42)
     return 1;
