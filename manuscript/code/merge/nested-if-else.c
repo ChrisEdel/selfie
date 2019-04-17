@@ -1,14 +1,8 @@
-/* The purpose of this code is to demonstrate the capabilities
-   of the monster symbolic execution engine of selfie regarding
-   a simple loop. Monster translates the code to an SMT-LIB 
-   formula that is satisfiable if and only if the code exits 
-   with a non-zero exit code. 
-
-   This code exits with 1 if the user input is '*' (decimal value 42)
-   and exits with 0 otherwise.
-
-   SMT-Solver finds the solution 42 (binary number 00101010).
-   (command: './selfie -c manuscript/code/symbolic-simple-loop.c -n 200')
+/*
+merge possible at instruction 0x214, 0x230
+boolector solution: #b00101000
+                    #b00110010
+                    #b00110100
 */
 
 uint64_t main() {
