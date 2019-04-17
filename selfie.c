@@ -7217,18 +7217,24 @@ void constrain_beq() {
 
   set_beq_counter(current_context, get_beq_counter(current_context) + 1);
 
-  // if the limit of symbolic beq instructions is reached, the path still continues until 
-  // maximal execution depth, but only by following the true case of the next encountered symbolic beq instructions
   if(get_beq_counter(current_context) < BEQ_LIMIT) { 
     copy_context(current_context,
-      pc + INSTRUCTIONSIZE,
-      smt_binary("and", pvar, smt_unary("not", bvar)),
+      pc + imm,
+      smt_binary("and", pvar, bvar),
       max_execution_depth - timer);
+
+    path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
+  
+    pc = pc + INSTRUCTIONSIZE;
+  } else {
+    // if the limit of symbolic beq instructions is reached, the path still continues until 
+    // maximal execution depth, but only by following the true case of the next encountered symbolic beq instructions
+    smt_binary("and", pvar, bvar);
+  
+    pc = pc + imm;
   }
 
-  path_condition = smt_binary("and", pvar, bvar);
 
-  pc = pc + imm;
 }
 
 void print_jal() {
@@ -7627,7 +7633,7 @@ uint64_t find_merge_location(uint64_t beq_imm) {
     // no jal instruction -> end of if without else
     merge_location = temp_pc + beq_imm;
   else {
-    if(!signed_less_than(imm, 0))
+    if(signed_less_than(imm, 0) == 0)
       // jal with positive imm -> end of if with else
       merge_location = pc + imm;
     else
