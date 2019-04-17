@@ -594,6 +594,12 @@ uint64_t look_for_factor();
 uint64_t look_for_statement();
 uint64_t look_for_type();
 
+void     talloc();
+uint64_t current_temporary();
+uint64_t previous_temporary();
+uint64_t next_temporary();
+void     tfree(uint64_t number_of_temporaries);
+
 void save_temporaries();
 void restore_temporaries(uint64_t number_of_temporaries);
 
@@ -730,38 +736,38 @@ uint64_t* REGISTERS; // strings representing registers
 void init_register() {
   REGISTERS = smalloc(NUMBEROFREGISTERS * SIZEOFUINT64STAR);
 
-  *(REGISTERS + REG_ZR)  = (uint64_t) "$zero";
-  *(REGISTERS + REG_RA)  = (uint64_t) "$ra";
-  *(REGISTERS + REG_SP)  = (uint64_t) "$sp";
-  *(REGISTERS + REG_GP)  = (uint64_t) "$gp";
-  *(REGISTERS + REG_TP)  = (uint64_t) "$tp";
-  *(REGISTERS + REG_T0)  = (uint64_t) "$t0";
-  *(REGISTERS + REG_T1)  = (uint64_t) "$t1";
-  *(REGISTERS + REG_T2)  = (uint64_t) "$t2";
-  *(REGISTERS + REG_FP)  = (uint64_t) "$fp";
-  *(REGISTERS + REG_S1)  = (uint64_t) "$s1";
-  *(REGISTERS + REG_A0)  = (uint64_t) "$a0";
-  *(REGISTERS + REG_A1)  = (uint64_t) "$a1";
-  *(REGISTERS + REG_A2)  = (uint64_t) "$a2";
-  *(REGISTERS + REG_A3)  = (uint64_t) "$a3";
-  *(REGISTERS + REG_A4)  = (uint64_t) "$a4";
-  *(REGISTERS + REG_A5)  = (uint64_t) "$a5";
-  *(REGISTERS + REG_A6)  = (uint64_t) "$a6";
-  *(REGISTERS + REG_A7)  = (uint64_t) "$a7";
-  *(REGISTERS + REG_S2)  = (uint64_t) "$s2";
-  *(REGISTERS + REG_S3)  = (uint64_t) "$s3";
-  *(REGISTERS + REG_S4)  = (uint64_t) "$s4";
-  *(REGISTERS + REG_S5)  = (uint64_t) "$s5";
-  *(REGISTERS + REG_S6)  = (uint64_t) "$s6";
-  *(REGISTERS + REG_S7)  = (uint64_t) "$s7";
-  *(REGISTERS + REG_S8)  = (uint64_t) "$s8";
-  *(REGISTERS + REG_S9)  = (uint64_t) "$s9";
-  *(REGISTERS + REG_S10) = (uint64_t) "$s10";
-  *(REGISTERS + REG_S11) = (uint64_t) "$s11";
-  *(REGISTERS + REG_T3)  = (uint64_t) "$t3";
-  *(REGISTERS + REG_T4)  = (uint64_t) "$t4";
-  *(REGISTERS + REG_T5)  = (uint64_t) "$t5";
-  *(REGISTERS + REG_T6)  = (uint64_t) "$t6";
+  *(REGISTERS + REG_ZR)  = (uint64_t) "zero";
+  *(REGISTERS + REG_RA)  = (uint64_t) "ra";
+  *(REGISTERS + REG_SP)  = (uint64_t) "sp";
+  *(REGISTERS + REG_GP)  = (uint64_t) "gp";
+  *(REGISTERS + REG_TP)  = (uint64_t) "tp";
+  *(REGISTERS + REG_T0)  = (uint64_t) "t0";
+  *(REGISTERS + REG_T1)  = (uint64_t) "t1";
+  *(REGISTERS + REG_T2)  = (uint64_t) "t2";
+  *(REGISTERS + REG_FP)  = (uint64_t) "s0";
+  *(REGISTERS + REG_S1)  = (uint64_t) "s1";
+  *(REGISTERS + REG_A0)  = (uint64_t) "a0";
+  *(REGISTERS + REG_A1)  = (uint64_t) "a1";
+  *(REGISTERS + REG_A2)  = (uint64_t) "a2";
+  *(REGISTERS + REG_A3)  = (uint64_t) "a3";
+  *(REGISTERS + REG_A4)  = (uint64_t) "a4";
+  *(REGISTERS + REG_A5)  = (uint64_t) "a5";
+  *(REGISTERS + REG_A6)  = (uint64_t) "a6";
+  *(REGISTERS + REG_A7)  = (uint64_t) "a7";
+  *(REGISTERS + REG_S2)  = (uint64_t) "s2";
+  *(REGISTERS + REG_S3)  = (uint64_t) "s3";
+  *(REGISTERS + REG_S4)  = (uint64_t) "s4";
+  *(REGISTERS + REG_S5)  = (uint64_t) "s5";
+  *(REGISTERS + REG_S6)  = (uint64_t) "s6";
+  *(REGISTERS + REG_S7)  = (uint64_t) "s7";
+  *(REGISTERS + REG_S8)  = (uint64_t) "s8";
+  *(REGISTERS + REG_S9)  = (uint64_t) "s9";
+  *(REGISTERS + REG_S10) = (uint64_t) "s10";
+  *(REGISTERS + REG_S11) = (uint64_t) "s11";
+  *(REGISTERS + REG_T3)  = (uint64_t) "t3";
+  *(REGISTERS + REG_T4)  = (uint64_t) "t4";
+  *(REGISTERS + REG_T5)  = (uint64_t) "t5";
+  *(REGISTERS + REG_T6)  = (uint64_t) "t6";
 }
 
 // -----------------------------------------------------------------
@@ -1882,9 +1888,9 @@ char* store_character(char* s, uint64_t i, uint64_t c) {
 }
 
 char* string_alloc(uint64_t l) {
-	// allocates zeroed memory for a string of l characters
+  // allocates zeroed memory for a string of l characters
   // plus a null terminator aligned to machine word size
-	return (char*) zalloc(l + 1);
+  return (char*) zalloc(l + 1);
 }
 
 uint64_t string_length(char* s) {
@@ -6653,17 +6659,15 @@ void print_code_context_for_instruction(uint64_t a) {
   if (run) {
     printf2("%s: $pc=%x", binary_name, (char*) a);
     print_code_line_number_for_instruction(a - entry_point);
+    print(": ");
     if (symbolic)
       // skip further output
       return;
-  } else {
+  } else if (disassemble_verbose) {
     printf1("%x", (char*) a);
-    if (disassemble_verbose) {
-      print_code_line_number_for_instruction(a);
-      printf1(": %p", (char*) ir);
-    }
+    print_code_line_number_for_instruction(a);
+    printf1(": %p: ", (char*) ir);
   }
-  print(": ");
 }
 
 void print_lui() {
@@ -7149,7 +7153,10 @@ void constrain_sd() {
 
 void print_beq() {
   print_code_context_for_instruction(pc);
-  printf4("beq %s,%s,%d[%x]", get_register_name(rs1), get_register_name(rs2), (char*) signed_division(imm, INSTRUCTIONSIZE), (char*) (pc + imm));
+  printf3("beq %s,%s,%d", get_register_name(rs1), get_register_name(rs2), (char*) signed_division(imm, INSTRUCTIONSIZE));
+  
+  if (disassemble_verbose)
+    printf1("[%x]", (char*) (pc + imm));
 }
 
 void print_beq_before() {
@@ -7228,7 +7235,10 @@ void constrain_beq() {
 
 void print_jal() {
   print_code_context_for_instruction(pc);
-  printf3("jal %s,%d[%x]", get_register_name(rd), (char*) signed_division(imm, INSTRUCTIONSIZE), (char*) (pc + imm));
+  printf2("jal %s,%d", get_register_name(rd), (char*) signed_division(imm, INSTRUCTIONSIZE));
+  
+  if (disassemble_verbose)
+    printf1("[%x]", (char*) (pc + imm));
 }
 
 void print_jal_before() {
@@ -7405,7 +7415,9 @@ void print_data_context(uint64_t data) {
 }
 
 void print_data(uint64_t data) {
-  print_data_context(data);
+  if (disassemble_verbose)
+    print_data_context(data);
+  
   printf1(".quad %x", (char*) data);
 }
 
