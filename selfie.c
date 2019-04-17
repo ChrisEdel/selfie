@@ -1228,6 +1228,8 @@ char* smt_variable(char* prefix, uint64_t bits);
 char* smt_unary(char* opt, char* op);
 char* smt_binary(char* opt, char* op1, char* op2);
 
+uint64_t find_merge_location(uint64_t beq_imm);
+
 // ------------------------ GLOBAL VARIABLES -----------------------
 
 uint64_t max_execution_depth = 1; // in number of instructions, unbounded with 0
@@ -7203,6 +7205,8 @@ void constrain_beq() {
 
   printf2("(assert (= %s %s)); beq in ", bvar, smt_binary("bvcomp", op1, op2));
   print_code_context_for_instruction(pc);
+  print("; merge possible at instruction: ");
+  print_code_context_for_instruction(find_merge_location(imm));
   println();
 
   pvar = smt_variable("p", 1);
@@ -7215,11 +7219,12 @@ void constrain_beq() {
 
   // if the limit of symbolic beq instructions is reached, the path still continues until 
   // maximal execution depth, but only by following the true case of the next encountered symbolic beq instructions
-  if(get_beq_counter(current_context) < BEQ_LIMIT) 
+  if(get_beq_counter(current_context) < BEQ_LIMIT) { 
     copy_context(current_context,
       pc + INSTRUCTIONSIZE,
       smt_binary("and", pvar, smt_unary("not", bvar)),
       max_execution_depth - timer);
+  }
 
   path_condition = smt_binary("and", pvar, bvar);
 
@@ -7600,6 +7605,40 @@ char* smt_binary(char* opt, char* op1, char* op2) {
   sprintf3(string, "(%s %s %s)", opt, op1, op2);
 
   return string;
+}
+
+uint64_t find_merge_location(uint64_t beq_imm) {
+  uint64_t temp_pc;
+  uint64_t temp_imm;
+  uint64_t merge_location;
+
+  temp_pc = pc;
+  temp_imm = imm;
+
+  // examine last instruction before jump location
+  pc = pc + (beq_imm - INSTRUCTIONSIZE);
+
+  // we need to know which instruction it is
+  fetch();
+  decode();
+
+  
+  if(is != JAL)
+    // no jal instruction -> end of if without else
+    merge_location = temp_pc + beq_imm;
+  else {
+    if(!signed_less_than(imm, 0))
+      // jal with positive imm -> end of if with else
+      merge_location = pc + imm;
+    else
+      // jal with negative imm -> end of loop body
+      merge_location = pc + INSTRUCTIONSIZE;
+  }
+
+  pc = temp_pc;
+  imm = temp_imm;
+
+  return merge_location;
 }
 
 // -----------------------------------------------------------------
