@@ -1236,6 +1236,12 @@ char* smt_binary(char* opt, char* op1, char* op2);
 
 uint64_t find_merge_location(uint64_t beq_imm);
 
+void      add_mergeable_context(uint64_t* context);
+uint64_t* get_mergeable_context();
+
+void      add_waiting_context(uint64_t* context);
+uint64_t* get_waiting_context();
+
 // ------------------------ GLOBAL VARIABLES -----------------------
 
 uint64_t max_execution_depth = 1; // in number of instructions, unbounded with 0
@@ -1252,6 +1258,9 @@ uint64_t* reg_sym = (uint64_t*) 0; // symbolic values in registers as strings in
 
 char*    smt_name = (char*) 0; // name of SMT-LIB file
 uint64_t smt_fd   = 0;         // file descriptor of open SMT-LIB file
+
+uint64_t* mergeable_contexts = (uint64_t*) 0;
+uint64_t* waiting_contexts   = (uint64_t*) 0;
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
@@ -7666,6 +7675,52 @@ uint64_t find_merge_location(uint64_t beq_imm) {
   imm = original_imm;
 
   return merge_location;
+}
+
+void add_mergeable_context(uint64_t* context) {
+  uint64_t* entry;
+
+  entry = smalloc(2 * SIZEOFUINT64STAR);
+
+  *(entry + 0) = (uint64_t) mergeable_contexts;
+  *(entry + 1) = (uint64_t) context;
+
+  mergeable_contexts = entry;
+}
+
+uint64_t* get_mergeable_context() {
+  uint64_t* head;
+
+  if(mergeable_contexts == (uint64_t*) 0)
+    return (uint64_t*) 0;
+
+  head = mergeable_contexts;
+  mergeable_contexts = (uint64_t*) *(head + 0);
+
+  return (uint64_t*) *(head + 1);
+}
+
+void add_waiting_context(uint64_t* context) {
+  uint64_t* entry;
+
+  entry = smalloc(2 * SIZEOFUINT64STAR);
+
+  *(entry + 0) = (uint64_t) waiting_contexts;
+  *(entry + 1) = (uint64_t) context;
+
+  waiting_contexts = entry;
+}
+
+uint64_t* get_waiting_context() {
+  uint64_t* head;
+
+  if(waiting_contexts == (uint64_t*) 0)
+    return (uint64_t*) 0;
+
+  head = waiting_contexts;
+  waiting_contexts = (uint64_t*) *(head + 0);
+
+  return (uint64_t*) *(head + 1);
 }
 
 // -----------------------------------------------------------------
