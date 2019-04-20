@@ -8137,6 +8137,10 @@ void interrupt() {
     }
 
     if(symbolic)
+      if(current_mergeable_context != (uint64_t*) 0)
+        if(pc == get_merge_location(current_mergeable_context))
+          merge(current_context, current_mergeable_context);
+        
       if(pc == get_merge_location(current_context))
         if (get_exception(current_context) == EXCEPTION_NOEXCEPTION)
         // only throw exception if no other is pending
@@ -9215,20 +9219,13 @@ uint64_t monster(uint64_t* to_context) {
     } else {
       exception = handle_exception(from_context);
       if (exception == EXIT) {
-        if (symbolic_contexts) {
-          to_context = symbolic_contexts;
+        to_context = get_mergeable_context();
+        if(to_context == (uint64_t*) 0)
+          to_context = get_unfinished_context();
+        if (to_context) {
+          current_mergeable_context = (uint64_t*) 0;
 
           timeout = max_execution_depth - get_execution_depth(to_context);
-
-          symbolic_contexts = get_related_context(symbolic_contexts);
-
-          if(get_pc(to_context) == get_merge_location(to_context)) {
-            // merge point
-            // we do not switch since the actual merge is not yet implemented
-            print("; merge potentially possible at instruction: ");
-            print_code_context_for_instruction(get_pc(to_context));
-            println();
-          }
 
         } else {
           print("\n(exit)");
@@ -9243,18 +9240,14 @@ uint64_t monster(uint64_t* to_context) {
           return EXITCODE_NOERROR;
         }
       } else if (exception == MERGE) {
+        to_context = get_waiting_context();
+        current_mergeable_context = from_context;
 
-        print("; merge potentially possible at instruction: ");
-        print_code_context_for_instruction(pc);
-        println();
-
-        // we do not switch since the actual merge is not yet implemented
-        // here we should actually switch to the merge partner, execute it 
-        // and merge as soon as they are at the same program location
-        // TODO: implement the actual merge
-        // note: the actual merge would not happen here; here we would only switch
-        // the contexts
-        to_context = from_context;
+        //TODO: handle more contexts
+        if(get_pc(to_context) == get_pc(current_mergeable_context)) {
+          merge(to_context, current_mergeable_context);
+          current_mergeable_context = get_mergeable_context();
+        }
 
         timeout = max_execution_depth - get_execution_depth(to_context);
       } else {
