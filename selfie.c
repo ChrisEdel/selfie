@@ -9177,6 +9177,7 @@ uint64_t monster(uint64_t* to_context) {
   uint64_t timeout;
   uint64_t* from_context;
   uint64_t exception;
+  uint64_t mergeable;
 
   print("monster\n");
 
@@ -9219,9 +9220,26 @@ uint64_t monster(uint64_t* to_context) {
     } else {
       exception = handle_exception(from_context);
       if (exception == EXIT) {
-        to_context = get_mergeable_context();
+        to_context = get_waiting_context();
         if(to_context == (uint64_t*) 0)
           to_context = get_unfinished_context();
+        else {
+          mergeable = 1;
+          while(mergeable) {
+            if(get_pc(to_context) == get_merge_location(to_context)) {
+              current_mergeable_context = to_context;
+              to_context = get_waiting_context();
+
+              if(get_pc(to_context) == get_pc(current_mergeable_context)) {
+                pc = get_pc(to_context);
+                merge(to_context, current_mergeable_context);
+                current_mergeable_context = get_mergeable_context();
+              } else
+                mergeable = 0;
+            } else
+              mergeable = 0;
+          }
+        }
         if (to_context) {
           current_mergeable_context = (uint64_t*) 0;
 
