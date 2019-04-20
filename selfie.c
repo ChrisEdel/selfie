@@ -1234,7 +1234,7 @@ char* smt_variable(char* prefix, uint64_t bits);
 char* smt_unary(char* opt, char* op);
 char* smt_binary(char* opt, char* op1, char* op2);
 
-uint64_t find_merge_location(uint64_t beq_imm);
+uint64_t  find_merge_location(uint64_t beq_imm);
 
 void      add_mergeable_context(uint64_t* context);
 uint64_t* get_mergeable_context();
@@ -1245,7 +1245,7 @@ uint64_t* get_waiting_context();
 void      add_unfinished_context(uint64_t* context);
 uint64_t* get_unfinished_context();
 
-void merge(uint64_t* context1, uint64_t* context2);
+void      merge(uint64_t* context1, uint64_t* context2);
 
 // ------------------------ GLOBAL VARIABLES -----------------------
 
@@ -1264,8 +1264,10 @@ uint64_t* reg_sym = (uint64_t*) 0; // symbolic values in registers as strings in
 char*    smt_name = (char*) 0; // name of SMT-LIB file
 uint64_t smt_fd   = 0;         // file descriptor of open SMT-LIB file
 
-uint64_t* mergeable_contexts = (uint64_t*) 0;
-uint64_t* waiting_contexts   = (uint64_t*) 0;
+uint64_t* mergeable_contexts        = (uint64_t*) 0;
+uint64_t* waiting_contexts          = (uint64_t*) 0;
+uint64_t* unfinished_contexts       = (uint64_t*) 0;
+uint64_t* current_mergeable_context = (uint64_t*) 0;
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
@@ -7751,6 +7753,7 @@ uint64_t* get_unfinished_context() {
   return (uint64_t*) *(head + 1);
 }
 
+//TODO: implement the actual merge
 void merge(uint64_t* context1, uint64_t* context2) {
   print("; merge possible at ");
   print_code_context_for_instruction(pc);
