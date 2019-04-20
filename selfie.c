@@ -1242,6 +1242,11 @@ uint64_t* get_mergeable_context();
 void      add_waiting_context(uint64_t* context);
 uint64_t* get_waiting_context();
 
+void      add_unfinished_context(uint64_t* context);
+uint64_t* get_unfinished_context();
+
+void merge(uint64_t* context1, uint64_t* context2);
+
 // ------------------------ GLOBAL VARIABLES -----------------------
 
 uint64_t max_execution_depth = 1; // in number of instructions, unbounded with 0
@@ -7721,6 +7726,37 @@ uint64_t* get_waiting_context() {
   waiting_contexts = (uint64_t*) *(head + 0);
 
   return (uint64_t*) *(head + 1);
+}
+
+void add_unfinished_context(uint64_t* context) {
+  uint64_t* entry;
+
+  entry = smalloc(2 * SIZEOFUINT64STAR);
+
+  *(entry + 0) = (uint64_t) unfinished_contexts;
+  *(entry + 1) = (uint64_t) context;
+
+  unfinished_contexts = entry;
+}
+
+uint64_t* get_unfinished_context() {
+  uint64_t* head;
+
+  if(unfinished_contexts == (uint64_t*) 0)
+    return (uint64_t*) 0;
+
+  head = unfinished_contexts;
+  unfinished_contexts = (uint64_t*) *(head + 0);
+
+  return (uint64_t*) *(head + 1);
+}
+
+void merge(uint64_t* context1, uint64_t* context2) {
+  print("; merge possible at ");
+  print_code_context_for_instruction(pc);
+  println();
+
+  add_unfinished_context(context2);
 }
 
 // -----------------------------------------------------------------
