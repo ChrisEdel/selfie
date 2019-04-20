@@ -8414,6 +8414,8 @@ uint64_t* copy_context(uint64_t* original, uint64_t location, char* condition, u
   set_related_context(context, symbolic_contexts);
 
   symbolic_contexts = context;
+
+  return context;
 }
 
 uint64_t* find_context(uint64_t* parent, uint64_t* vctxt) {
