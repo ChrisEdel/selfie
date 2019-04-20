@@ -1435,8 +1435,8 @@ void reset_interpreter() {
 
 uint64_t* new_context();
 
-void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt);
-void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth);
+void      init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt);
+uint64_t* copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth);
 
 uint64_t* find_context(uint64_t* parent, uint64_t* vctxt);
 
@@ -7239,10 +7239,10 @@ void constrain_beq() {
   set_beq_counter(current_context, get_beq_counter(current_context) + 1);
 
   if(get_beq_counter(current_context) < BEQ_LIMIT) { 
-    copy_context(current_context,
+    add_waiting_context(copy_context(current_context,
       pc + imm,
       smt_binary("and", pvar, bvar),
-      max_execution_depth - timer);
+      max_execution_depth - timer));
 
     path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
     set_merge_location(current_context, find_merge_location(imm));
@@ -8365,7 +8365,7 @@ void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt) {
   }
 }
 
-void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth) {
+uint64_t* copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth) {
   uint64_t* context;
   uint64_t r;
 
