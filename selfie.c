@@ -7760,6 +7760,7 @@ void merge(uint64_t* context1, uint64_t* context2) {
   println();
 
   add_unfinished_context(context2);
+  current_mergeable_context = (uint64_t*) 0;
 }
 
 // -----------------------------------------------------------------
@@ -9261,11 +9262,31 @@ uint64_t monster(uint64_t* to_context) {
         to_context = get_waiting_context();
         current_mergeable_context = from_context;
 
-        //TODO: handle more contexts
-        if(get_pc(to_context) == get_pc(current_mergeable_context)) {
-          merge(to_context, current_mergeable_context);
-          current_mergeable_context = get_mergeable_context();
+        mergeable = 1;
+        while(mergeable) {
+          if(current_mergeable_context != (uint64_t*) 0) {
+            if(get_pc(to_context) == get_pc(current_mergeable_context)) {
+              merge(to_context, current_mergeable_context);
+              current_mergeable_context = get_mergeable_context();
+            } else {
+              mergeable = 0;
+            }
+          } else
+            mergeable = 0;
         }
+        
+        mergeable = 1;
+        while(mergeable) {
+          if(get_pc(to_context) == get_merge_location(to_context)) {
+            add_mergeable_context(to_context); //TODO: unsure about this?
+            to_context = get_waiting_context();
+          } else {
+            mergeable = 0;
+          }
+        }
+        
+        if(current_mergeable_context == (uint64_t*) 0)
+          current_mergeable_context = get_mergeable_context();
 
         timeout = max_execution_depth - get_execution_depth(to_context);
       } else {
