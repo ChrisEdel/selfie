@@ -8148,10 +8148,12 @@ void interrupt() {
           merge(current_context, current_mergeable_context);
         
       if(pc == get_merge_location(current_context))
-        if (get_exception(current_context) == EXCEPTION_NOEXCEPTION)
-        // only throw exception if no other is pending
-        // TODO: handle multiple pending exceptions
-        throw_exception(EXCEPTION_MERGE, 0);
+        if (get_exception(current_context) == EXCEPTION_NOEXCEPTION) {
+          add_mergeable_context(current_context);
+          // only throw exception if no other is pending
+          // TODO: handle multiple pending exceptions
+          throw_exception(EXCEPTION_MERGE, 0);
+        }
   }
 }
 
@@ -9184,6 +9186,8 @@ uint64_t monster(uint64_t* to_context) {
   uint64_t* from_context;
   uint64_t exception;
   uint64_t mergeable;
+  uint64_t pauseable;
+  uint64_t merge_not_finished;
 
   print("monster\n");
 
@@ -9265,29 +9269,40 @@ uint64_t monster(uint64_t* to_context) {
         }
       } else if (exception == MERGE) {
         to_context = get_waiting_context();
-        current_mergeable_context = from_context;
+        current_mergeable_context = get_mergeable_context();
 
-        mergeable = 1;
-        while(mergeable) {
-          if(current_mergeable_context != (uint64_t*) 0) {
-            if(get_pc(to_context) == get_pc(current_mergeable_context)) {
-              merge(to_context, current_mergeable_context);
-              current_mergeable_context = get_mergeable_context();
-            } else {
+        merge_not_finished = 1;
+
+
+        while(merge_not_finished) {
+          mergeable = 1;
+          while(mergeable) {
+            if(current_mergeable_context != (uint64_t*) 0) {
+              if(get_pc(to_context) == get_pc(current_mergeable_context)) {
+                merge(to_context, current_mergeable_context);
+                current_mergeable_context = get_mergeable_context();
+              } else {
+                mergeable = 0;
+              }
+            } else
               mergeable = 0;
-            }
-          } else
-            mergeable = 0;
-        }
-        
-        mergeable = 1;
-        while(mergeable) {
-          if(get_pc(to_context) == get_merge_location(to_context)) {
-            add_mergeable_context(to_context); //TODO: unsure about this?
-            to_context = get_waiting_context();
-          } else {
-            mergeable = 0;
           }
+        
+          pauseable = 1;
+          while(pauseable) {
+            if(get_pc(to_context) == get_merge_location(to_context)) {
+              add_mergeable_context(to_context); //TODO: unsure about this?
+              to_context = get_waiting_context();
+              current_mergeable_context = (uint64_t*) 0;
+            } else {
+              pauseable = 0;
+            }
+          }
+
+        if(mergeable == 0)
+          if(pauseable == 0)
+            merge_not_finished = 0;
+
         }
         
         if(current_mergeable_context == (uint64_t*) 0)
