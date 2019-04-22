@@ -7254,6 +7254,11 @@ void constrain_beq() {
     path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
     set_merge_location(current_context, find_merge_location(imm));
   
+    if(current_mergeable_context != (uint64_t*) 0) {
+      add_mergeable_context(current_mergeable_context);
+      current_mergeable_context = (uint64_t*) 0;
+    }
+
     pc = pc + INSTRUCTIONSIZE;
   } else {
     // if the limit of symbolic beq instructions is reached, the path still continues until 
