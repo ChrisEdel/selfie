@@ -7254,7 +7254,9 @@ void constrain_beq() {
     path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
     set_merge_location(current_context, find_merge_location(imm));
   
+    // check if a context is waiting for the merge
     if(current_mergeable_context != (uint64_t*) 0) {
+      // we cannot merge with this one, so we add it back to the stack
       add_mergeable_context(current_mergeable_context);
       current_mergeable_context = (uint64_t*) 0;
     }
@@ -7758,12 +7760,14 @@ uint64_t* get_unfinished_context() {
   return (uint64_t*) *(head + 1);
 }
 
-//TODO: implement the actual merge
+// TODO: implement the actual merge
 void merge(uint64_t* context1, uint64_t* context2) {
   print("; merge possible at ");
-  print_code_context_for_instruction(pc);
+  print_code_context_for_instruction(get_pc(context1));
   println();
 
+  // since we do not actually merge yet,
+  // we need to store the context in order to finish later
   add_unfinished_context(context2);
   current_mergeable_context = (uint64_t*) 0;
 }
@@ -8141,19 +8145,18 @@ void interrupt() {
         // trigger timer in the next interrupt cycle
         timer = 1;
     }
+  }
 
-    if(symbolic)
-      if(current_mergeable_context != (uint64_t*) 0)
-        if(pc == get_merge_location(current_mergeable_context))
-          merge(current_context, current_mergeable_context);
-        
-      if(pc == get_merge_location(current_context))
-        if (get_exception(current_context) == EXCEPTION_NOEXCEPTION) {
-          add_mergeable_context(current_context);
-          // only throw exception if no other is pending
-          // TODO: handle multiple pending exceptions
-          throw_exception(EXCEPTION_MERGE, 0);
-        }
+  if(symbolic) {
+    if(current_mergeable_context != (uint64_t*) 0)
+      if(pc == get_merge_location(current_mergeable_context))
+        merge(current_context, current_mergeable_context);
+      
+    if(pc == get_merge_location(current_context))
+      if (get_exception(current_context) == EXCEPTION_NOEXCEPTION)
+        // only throw exception if no other is pending
+        // TODO: handle multiple pending exceptions
+        throw_exception(EXCEPTION_MERGE, 0);
   }
 }
 
@@ -8946,6 +8949,7 @@ uint64_t handle_timer(uint64_t* context) {
 }
 
 uint64_t handle_merge(uint64_t* context) {
+  add_mergeable_context(current_context);
   set_exception(context, EXCEPTION_NOEXCEPTION);
 
   return MERGE;
