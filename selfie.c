@@ -7798,17 +7798,18 @@ uint64_t* check_merge_and_get_next_context(uint64_t* context) {
     }
     
     pauseable = 1;
-    while(pauseable) {
-      if(context != (uint64_t*) 0) {
-        if(get_pc(context) == get_merge_location(context)) {
-          add_mergeable_context(context);
-          context = get_waiting_context();
-        } else {
-          pauseable = 0;
-        }
-      } else
-        merge_not_finished = 0;
-    }
+          while(pauseable) {
+            if(get_pc(context) == get_merge_location(context)) {
+              add_mergeable_context(context); //TODO: unsure about this?
+              context = get_waiting_context();
+              if(context == (uint64_t*) 0) {
+                mergeable = 0;
+                pauseable = 0;
+              }
+            } else {
+              pauseable = 0;
+            }
+          }
 
     if(mergeable == 0)
       if(pauseable == 0)
@@ -9308,57 +9309,12 @@ uint64_t monster(uint64_t* to_context) {
           if(to_context)
             set_merge_location(to_context, -1);
         
-        } else {
-           merge_not_finished = 1;
-          while(merge_not_finished) {
-          mergeable = 1;
-          while(mergeable) {
-            current_mergeable_context = get_mergeable_context();
-            if(current_mergeable_context != (uint64_t*) 0) {
-              if(get_pc(to_context) == get_pc(current_mergeable_context)) {
-                merge(to_context, current_mergeable_context);
-              } else {
-                mergeable = 0;
-              }
-            } else
-              mergeable = 0;
-          }
-        
-          pauseable = 1;
-          while(pauseable) {
-            if(get_pc(to_context) == get_merge_location(to_context)) {
-              add_mergeable_context(to_context); //TODO: unsure about this?
-              to_context = get_waiting_context();
-              if(to_context == (uint64_t*) 0) {
-                mergeable = 0;
-                pauseable = 0;
-              }
-            } else {
-              pauseable = 0;
-            }
-          }
+        } 
 
-        if(mergeable == 0)
-          if(pauseable == 0)
-            merge_not_finished = 0;
-
-        if(to_context == (uint64_t*) 0)
-          merge_not_finished = 0;
-
-        }
-        }
-
-        if(to_context == (uint64_t*) 0)
-          to_context = get_waiting_context();
-
-        if(to_context == (uint64_t*) 0)
-          to_context = get_mergeable_context();
+        if(to_context) {
+           to_context = check_merge_and_get_next_context(to_context);
 
 
-        if(to_context == (uint64_t*) 0) {  
-          to_context = get_unfinished_context();
-          if(to_context)
-            set_merge_location(to_context, -1);
         }
 
 
@@ -9380,11 +9336,9 @@ uint64_t monster(uint64_t* to_context) {
 
 
       } else if (exception == MERGE) {
-
         to_context = check_merge_and_get_next_context(get_waiting_context());
+
         timeout = max_execution_depth - get_execution_depth(to_context);
-
-
       } else {
         timeout = timer;
 
