@@ -1267,7 +1267,7 @@ uint64_t smt_fd   = 0;         // file descriptor of open SMT-LIB file
 
 uint64_t* mergeable_contexts        = (uint64_t*) 0;
 uint64_t* waiting_contexts          = (uint64_t*) 0;
-uint64_t* unfinished_contexts       = (uint64_t*) 0;
+uint64_t* unfinished_contexts       = (uint64_t*) 0; // this is where contexts are stored that would have been merged
 uint64_t* current_mergeable_context = (uint64_t*) 0;
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
