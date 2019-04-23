@@ -10,11 +10,11 @@ Solution: #b00000011
 uint64_t fib(uint64_t n);
 
 uint64_t main() {
-  uint64_t* x;
   uint64_t  a;
+  uint64_t* x;
 
   x = malloc(8);
-
+  
   read(1, x, 1);
 
   a = fib(*x);
