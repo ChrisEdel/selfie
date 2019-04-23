@@ -7825,7 +7825,7 @@ uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
   }
 
   // check if there are contexts which have been paused and were
-  // merged yet
+  // not merged yet
   if(context == (uint64_t*) 0)
     context = get_mergeable_context();
 
