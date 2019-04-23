@@ -7246,7 +7246,8 @@ void constrain_beq() {
 
   set_beq_counter(current_context, get_beq_counter(current_context) + 1);
 
-  if(get_beq_counter(current_context) < BEQ_LIMIT) { 
+  if(get_beq_counter(current_context) < BEQ_LIMIT) {
+    // we may be able to merge with this context later
     add_waiting_context(copy_context(current_context,
       pc + imm,
       smt_binary("and", pvar, bvar),
@@ -7258,6 +7259,7 @@ void constrain_beq() {
     // check if a context is waiting for the merge
     if(current_mergeable_context != (uint64_t*) 0) {
       // we cannot merge with this one, so we add it back to the stack
+      // of mergeable contexts
       add_mergeable_context(current_mergeable_context);
       current_mergeable_context = (uint64_t*) 0;
     }
@@ -7270,8 +7272,6 @@ void constrain_beq() {
   
     pc = pc + imm;
   }
-
-
 }
 
 void print_jal() {
@@ -8217,9 +8217,12 @@ void interrupt() {
 
   if(symbolic) {
     if(current_mergeable_context != (uint64_t*) 0)
+      // if both contexts are the same program location,
+      // they can be merged
       if(pc == get_merge_location(current_mergeable_context))
         merge(current_context, current_mergeable_context);
-      
+    
+    // check if the current context has reached a merge location
     if(pc == get_merge_location(current_context))
       if (get_exception(current_context) == EXCEPTION_NOEXCEPTION)
         // only throw exception if no other is pending
