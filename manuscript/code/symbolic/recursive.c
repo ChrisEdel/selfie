@@ -1,11 +1,10 @@
-/* The purpose of this code is to demonstrate the capabilities
-   of the monster symbolic execution engine of selfie regarding
-   a simple recursion. Monster translates the code to an SMT-LIB 
-   formula that is satisfiable if and only if the code exits 
-   with a non-zero exit code. 
-   SMT-Solver finds the solution 4. The fourth fibonacci number
-   is 3, so 4 is the correct solution.
-   (command: './selfie -c manuscript/code/symbolic-recursive.c -n 300')
+/* 
+The purpose of this code is to demonstrate the capabilities
+of the monster model generator of selfie. Monster translates
+the code to an SMT-LIB or BTOR2 formula that is satisfiable
+if and only if the code exits with a non-zero exit code.
+
+Solution: #b00000011
 */
 
 uint64_t fib(uint64_t n);
