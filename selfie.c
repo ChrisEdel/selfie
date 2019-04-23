@@ -9386,9 +9386,6 @@ uint64_t monster(uint64_t* to_context) {
       } else if (exception == MERGE) {
 
         to_context = check_merge_and_get_next_context(get_waiting_context());
-
-        
-
         timeout = max_execution_depth - get_execution_depth(to_context);
 
 
