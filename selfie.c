@@ -7780,6 +7780,8 @@ uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
 
   merge_not_finished = 1;
   while(merge_not_finished) {
+    mergeable = 1;
+    pauseable = 1;
 
     // break out of the loop
     if(context == (uint64_t*) 0) {
@@ -7789,7 +7791,6 @@ uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
 
     // check if the context can be merged
     // with one or more mergeable contexts
-    mergeable = 1;
     while(mergeable) {
       current_mergeable_context = get_mergeable_context();
       if(current_mergeable_context != (uint64_t*) 0) {
@@ -7803,7 +7804,6 @@ uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
     
     // check if the context has reached a merge location
     // and needs to be paused
-    pauseable = 1;
     while(pauseable) {
       if(get_pc(context) == get_merge_location(context)) {
         add_mergeable_context(context);
@@ -9257,9 +9257,6 @@ uint64_t monster(uint64_t* to_context) {
   uint64_t timeout;
   uint64_t* from_context;
   uint64_t exception;
-  uint64_t mergeable;
-  uint64_t pauseable;
-  uint64_t merge_not_finished;
 
   print("monster\n");
 
@@ -9302,36 +9299,41 @@ uint64_t monster(uint64_t* to_context) {
     } else {
       exception = handle_exception(from_context);
       if (exception == EXIT) {
-
-
+        // if a context is currently waiting to be merged, we need to switch to this one
         if(current_mergeable_context != (uint64_t*) 0) {
+          // update the merge location, so the 'new' context can be merged later
           set_merge_location(current_mergeable_context, get_merge_location(current_context));
           to_context = current_mergeable_context;
-        } else {
-          to_context = get_waiting_context();
-        }
 
-        if(to_context == (uint64_t*) 0)
+        // if no context is currently waiting to be merged,
+        // we switch to the next waiting context
+        } else
+          to_context = get_waiting_context();
+
+        // it may be possible that there are no waiting contexts,
+        // but mergeable contexts
+        if(to_context == (uint64_t*) 0) {
           to_context = get_mergeable_context();
 
+          if(to_context)
+            // update the merge location, so the 'new' context can be merged later
+            set_merge_location(to_context, get_merge_location(current_context));
+        }
+
+        // since we do not actually merge yet,
+        // we need to finish contexts which would have been merge
         if(to_context == (uint64_t*) 0) {  
           to_context = get_unfinished_context();
           if(to_context)
+            // cannot be merged anymore since the have already been 'merged'
             set_merge_location(to_context, -1);
-        
         } 
 
-        if(to_context) {
-           to_context = merge_if_possible_and_get_context(to_context);
+        to_context = merge_if_possible_and_get_context(to_context);
 
-
-        }
-
-
-        if(to_context) {
+        if(to_context)
           timeout = max_execution_depth - get_execution_depth(to_context);
-
-        } else {
+        else {
           print("\n(exit)");
 
           output_name = (char*) 0;
@@ -9343,8 +9345,6 @@ uint64_t monster(uint64_t* to_context) {
 
           return EXITCODE_NOERROR;
         }
-
-
       } else if (exception == MERGE) {
         to_context = merge_if_possible_and_get_context(get_waiting_context());
 
