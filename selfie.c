@@ -7780,50 +7780,46 @@ uint64_t* check_merge_and_get_next_context(uint64_t* context) {
 
   merge_not_finished = 1;
   while(merge_not_finished) {
+
     mergeable = 1;
     while(mergeable) {
-      current_mergeable_context = get_mergeable_context();
-      if(current_mergeable_context != (uint64_t*) 0) {
-
       if(context != (uint64_t*) 0) {
+        current_mergeable_context = get_mergeable_context();
+        if(current_mergeable_context != (uint64_t*) 0) {
           if(get_pc(context) == get_pc(current_mergeable_context)) {
             merge(context, current_mergeable_context);
           } else {
             mergeable = 0;
           }
         } else
-          merge_not_finished = 0;
+          mergeable = 0;
       } else
-        mergeable = 0;
+        merge_not_finished = 0;
     }
     
     pauseable = 1;
     while(pauseable) {
       if(context != (uint64_t*) 0) {
         if(get_pc(context) == get_merge_location(context)) {
-          add_mergeable_context(context); //TODO: unsure about this?
+          add_mergeable_context(context);
           context = get_waiting_context();
         } else {
           pauseable = 0;
         }
-      }
-      else
+      } else
         merge_not_finished = 0;
     }
 
-  if(mergeable == 0)
-    if(pauseable == 0)
-      merge_not_finished = 0;
+    if(mergeable == 0)
+      if(pauseable == 0)
+        merge_not_finished = 0;
 
   }
 
   if(context == (uint64_t*) 0)
-    context = get_waiting_context();
-
-  if(context == (uint64_t*) 0)
     context = get_mergeable_context();
 
-
+  // we need this since the merge is currently only simulated
   if(context == (uint64_t*) 0) {  
     context = get_unfinished_context();
     if(context)
