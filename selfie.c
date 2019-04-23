@@ -1245,7 +1245,7 @@ uint64_t* get_waiting_context();
 void      add_unfinished_context(uint64_t* context);
 uint64_t* get_unfinished_context();
 
-void      merge(uint64_t* context1, uint64_t* context2);
+void      merge(uint64_t* context1, uint64_t* context2, uint64_t location);
 uint64_t* merge_if_possible_and_get_context(uint64_t* context);
 
 // ------------------------ GLOBAL VARIABLES -----------------------
@@ -1265,9 +1265,9 @@ uint64_t* reg_sym = (uint64_t*) 0; // symbolic values in registers as strings in
 char*    smt_name = (char*) 0; // name of SMT-LIB file
 uint64_t smt_fd   = 0;         // file descriptor of open SMT-LIB file
 
-uint64_t* mergeable_contexts        = (uint64_t*) 0;
-uint64_t* waiting_contexts          = (uint64_t*) 0;
-uint64_t* unfinished_contexts       = (uint64_t*) 0; // this is where contexts are stored that would have been merged
+uint64_t* mergeable_contexts        = (uint64_t*) 0; // contexts that are ready for a merge
+uint64_t* waiting_contexts          = (uint64_t*) 0; // contexts that are waiting to be executed after a beq
+uint64_t* unfinished_contexts       = (uint64_t*) 0; // contexts that would have been merged
 uint64_t* current_mergeable_context = (uint64_t*) 0;
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
@@ -7762,15 +7762,16 @@ uint64_t* get_unfinished_context() {
 }
 
 // TODO: implement the actual merge
-void merge(uint64_t* context1, uint64_t* context2) {
+void merge(uint64_t* context1, uint64_t* context2, uint64_t location) {
   print("; merge possible at ");
-  print_code_context_for_instruction(get_pc(context1));
+  print_code_context_for_instruction(location);
   println();
 
   // since we do not actually merge yet,
-  // we need to store the context in order to finish later
+  // we need to store the context in order to finish it later
   add_unfinished_context(context2);
   current_mergeable_context = (uint64_t*) 0;
+  context1 = context1 + 0; // no warning
 }
 
 uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
@@ -7793,18 +7794,23 @@ uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
     // with one or more mergeable contexts
     while(mergeable) {
       current_mergeable_context = get_mergeable_context();
+
       if(current_mergeable_context != (uint64_t*) 0) {
+
         if(get_pc(context) == get_pc(current_mergeable_context))
-          merge(context, current_mergeable_context);
+          merge(context, current_mergeable_context, get_pc(context));
         else
           mergeable = 0;
+
       } else
         mergeable = 0;
+
     }
     
     // check if the context has reached a merge location
     // and needs to be paused
     while(pauseable) {
+
       if(get_pc(context) == get_merge_location(context)) {
         add_mergeable_context(context);
         context = get_waiting_context();
@@ -8217,10 +8223,10 @@ void interrupt() {
 
   if(symbolic) {
     if(current_mergeable_context != (uint64_t*) 0)
-      // if both contexts are the same program location,
+      // if both contexts are at the same program location,
       // they can be merged
       if(pc == get_merge_location(current_mergeable_context))
-        merge(current_context, current_mergeable_context);
+        merge(current_context, current_mergeable_context, pc);
     
     // check if the current context has reached a merge location
     if(pc == get_merge_location(current_context))
@@ -9328,7 +9334,7 @@ uint64_t monster(uint64_t* to_context) {
         if(to_context == (uint64_t*) 0) {  
           to_context = get_unfinished_context();
           if(to_context)
-            // cannot be merged anymore since the have already been 'merged'
+            // cannot be merged anymore since they have already been 'merged'
             set_merge_location(to_context, -1);
         } 
 
