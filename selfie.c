@@ -4856,7 +4856,7 @@ void emit_bootstrapping() {
 
     // assert: stack is set up with argv pointer still missing
     //
-    //    $sp
+    //    sp
     //     |
     //     V
     // | argc | argv[0] | argv[1] | ... | argv[n]
@@ -4865,7 +4865,7 @@ void emit_bootstrapping() {
 
     // first obtain pointer to argv
     //
-    //    $sp + REGISTERSIZE
+    //    sp + REGISTERSIZE
     //            |
     //            V
     // | argc | argv[0] | argv[1] | ... | argv[n]
@@ -6683,7 +6683,7 @@ void print_code_line_number_for_instruction(uint64_t a) {
 
 void print_code_context_for_instruction(uint64_t a) {
   if (run) {
-    printf2("%s: $pc=%x", binary_name, (char*) a);
+    printf2("%s: pc=%x", binary_name, (char*) a);
     print_code_line_number_for_instruction(a - entry_point);
     print(": ");
     if (symbolic)
@@ -7180,7 +7180,7 @@ void constrain_sd() {
 void print_beq() {
   print_code_context_for_instruction(pc);
   printf3("beq %s,%s,%d", get_register_name(rs1), get_register_name(rs2), (char*) signed_division(imm, INSTRUCTIONSIZE));
-  
+
   if (disassemble_verbose)
     printf1("[%x]", (char*) (pc + imm));
 }
@@ -7190,11 +7190,11 @@ void print_beq_before() {
   print_register_value(rs1);
   print(",");
   print_register_value(rs2);
-  printf1(" |- $pc=%x", (char*) pc);
+  printf1(" |- pc=%x", (char*) pc);
 }
 
 void print_beq_after() {
-  printf1(" -> $pc=%x", (char*) pc);
+  printf1(" -> pc=%x", (char*) pc);
 }
 
 void record_beq() {
@@ -7277,7 +7277,7 @@ void constrain_beq() {
 void print_jal() {
   print_code_context_for_instruction(pc);
   printf2("jal %s,%d", get_register_name(rd), (char*) signed_division(imm, INSTRUCTIONSIZE));
-  
+
   if (disassemble_verbose)
     printf1("[%x]", (char*) (pc + imm));
 }
@@ -7288,7 +7288,7 @@ void print_jal_before() {
     print_register_hexadecimal(rd);
     print(",");
   }
-  printf1("$pc=%x", (char*) pc);
+  printf1("pc=%x", (char*) pc);
 }
 
 void print_jal_jalr_after() {
@@ -7351,7 +7351,7 @@ void print_jalr_before() {
     print_register_hexadecimal(rd);
     print(",");
   }
-  printf1("$pc=%x", (char*) pc);
+  printf1("pc=%x", (char*) pc);
 }
 
 void do_jalr() {
@@ -7458,7 +7458,7 @@ void print_data_context(uint64_t data) {
 void print_data(uint64_t data) {
   if (disassemble_verbose)
     print_data_context(data);
-  
+
   printf1(".quad %x", (char*) data);
 }
 
