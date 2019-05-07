@@ -7850,7 +7850,7 @@ void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
                   smt_binary("=", path_condition, get_path_condition(context1)), 
                   bv_constant(get_word_value(sword1)), 
                   bv_constant(get_word_value(sword2)))
-          );
+            );
         }
       }
         
