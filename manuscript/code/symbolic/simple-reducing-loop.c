@@ -16,14 +16,16 @@ uint64_t main() {
   x = malloc(8);
 
   read(1, x, 1);
+  
+  *x = *x - 40;
 
-  *x = *x - 47;
+  while (*x > 0) {
+    a = a + 1;
+    *x = *x - 1;
+  }
 
-  if (*x == 2)
-    a = a + *x;
-
-  if (a == 42)
-    exit(1);
+  if (a == 49)
+    return 1;
   else
-    exit(0);
+    return 0;
 }
