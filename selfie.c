@@ -7790,14 +7790,18 @@ void merge(uint64_t* context1, uint64_t* context2, uint64_t location) {
   print_code_context_for_instruction(location);
   println();
 
+  // merging the symbolic store
   merge_symbolic_store(context1, context2);
+
+  // merging the path condition
+  path_condition = smt_binary("or", get_path_condition(context1), get_path_condition(context2));
+  set_path_condition(context1, path_condition);
 
 
   // since we do not actually merge yet,
   // we need to store the context in order to finish it later
-  add_unfinished_context(context2);
+  // add_unfinished_context(context2); TODO: remove the unfinished contexts stack once the merge implementation is finished
   current_mergeable_context = (uint64_t*) 0;
-  context1 = context1 + 0; // no warning
 }
 
 void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
@@ -7805,54 +7809,54 @@ void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
   uint64_t* sword2;
 
   sword1 = get_symbolic_memory(context1);
-    while (sword1) {
-      sword2 = get_symbolic_memory(context2);
-      while(sword2) {
-        if(get_word_address(sword1) == get_word_address(sword2)) {
-          if(get_word_symbolic(sword1) != (char*) 0) {
-            if(get_word_symbolic(sword2) != (char*) 0) {
-              if(get_word_symbolic(sword1) != get_word_symbolic(sword2))
-                // merge symbolic values if they are different
-                set_word_symbolic(sword1, 
-                  smt_ternary("ite", 
-                    smt_binary("=", path_condition, get_path_condition(context1)), 
-                    get_word_symbolic(sword1), 
-                    get_word_symbolic(sword1))
-                );
-            }
-            else
-              // merge symbolic value and concrete value
+  while (sword1) {
+    sword2 = get_symbolic_memory(context2);
+    while(sword2) {
+      if(get_word_address(sword1) == get_word_address(sword2)) {
+        if(get_word_symbolic(sword1) != (char*) 0) {
+          if(get_word_symbolic(sword2) != (char*) 0) {
+            if(get_word_symbolic(sword1) != get_word_symbolic(sword2))
+              // merge symbolic values if they are different
               set_word_symbolic(sword1, 
                 smt_ternary("ite", 
                   smt_binary("=", path_condition, get_path_condition(context1)), 
                   get_word_symbolic(sword1), 
-                  bv_constant(get_word_value(sword2)))
+                  get_word_symbolic(sword1))
               );
-          } else {
-            if(get_word_symbolic(sword2) != (char*) 0)
-              // merge concrete value and symbolic value
-              set_word_symbolic(sword1, 
-                smt_ternary("ite", 
-                  smt_binary("=", path_condition, get_path_condition(context1)), 
-                  bv_constant(get_word_value(sword1)), 
-                  get_word_symbolic(sword2))
-                );
-          else
-            if(get_word_value(sword1) != get_word_value(sword2))
-              // merge concrete values if they are different
-              set_word_symbolic(sword1, 
-                smt_ternary("ite", 
-                  smt_binary("=", path_condition, get_path_condition(context1)), 
-                  bv_constant(get_word_value(sword1)), 
-                  bv_constant(get_word_value(sword2)))
-            );
           }
+          else
+            // merge symbolic value and concrete value
+            set_word_symbolic(sword1, 
+              smt_ternary("ite", 
+                smt_binary("=", path_condition, get_path_condition(context1)), 
+                get_word_symbolic(sword1), 
+                bv_constant(get_word_value(sword2)))
+            );
+        } else {
+          if(get_word_symbolic(sword2) != (char*) 0)
+            // merge concrete value and symbolic value
+            set_word_symbolic(sword1, 
+              smt_ternary("ite", 
+                smt_binary("=", path_condition, get_path_condition(context1)), 
+                bv_constant(get_word_value(sword1)), 
+                get_word_symbolic(sword2))
+              );
+        else
+          if(get_word_value(sword1) != get_word_value(sword2))
+            // merge concrete values if they are different
+            set_word_symbolic(sword1, 
+              smt_ternary("ite", 
+                smt_binary("=", path_condition, get_path_condition(context1)), 
+                bv_constant(get_word_value(sword1)), 
+                bv_constant(get_word_value(sword2)))
+          );
         }
-        sword2 = get_next_word(sword2);
       }
-    sword1 = get_next_word(sword1);
+      sword2 = get_next_word(sword2);
     }
+  sword1 = get_next_word(sword1);
   }
+}
 
 uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
   uint64_t merge_not_finished;
