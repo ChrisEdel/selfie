@@ -26,5 +26,4 @@ uint64_t main() {
     exit(1);
   else
     exit(0);
-
 }
