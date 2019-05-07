@@ -177,6 +177,7 @@ void printf6(char* s, char* a1, char* a2, char* a3, char* a4, char* a5, char* a6
 void sprintf1(char* b, char* s, char* a1);
 void sprintf2(char* b, char* s, char* a1, char* a2);
 void sprintf3(char* b, char* s, char* a1, char* a2, char* a3);
+void sprintf4(char* b, char* s, char* a1, char* a2, char* a3, char* a4);
 
 uint64_t round_up(uint64_t n, uint64_t m);
 
@@ -1233,6 +1234,7 @@ char* smt_variable(char* prefix, uint64_t bits);
 
 char* smt_unary(char* opt, char* op);
 char* smt_binary(char* opt, char* op1, char* op2);
+char* smt_ternary(char* opt, char* op1, char* op2, char* op3);
 
 uint64_t  find_merge_location(uint64_t beq_imm);
 
@@ -1246,6 +1248,7 @@ void      add_unfinished_context(uint64_t* context);
 uint64_t* get_unfinished_context();
 
 void      merge(uint64_t* context1, uint64_t* context2, uint64_t location);
+void      merge_symbolic_store(uint64_t* context1, uint64_t* context2);
 uint64_t* merge_if_possible_and_get_context(uint64_t* context);
 
 // ------------------------ GLOBAL VARIABLES -----------------------
@@ -2427,6 +2430,16 @@ void sprintf3(char* b, char* s, char* a1, char* a2, char* a3) {
   output_cursor = 0;
 
   printf3(s, a1, a2, a3);put_character(0);
+
+  output_buffer = (char*) 0;
+  output_cursor = 0;
+}
+
+void sprintf4(char* b, char* s, char* a1, char* a2, char* a3, char* a4) {
+  output_buffer = b;
+  output_cursor = 0;
+
+  printf4(s, a1, a2, a3, a4);put_character(0);
 
   output_buffer = (char*) 0;
   output_cursor = 0;
@@ -7655,6 +7668,16 @@ char* smt_binary(char* opt, char* op1, char* op2) {
   return string;
 }
 
+char* smt_ternary(char* opt, char* op1, char* op2, char* op3) {
+  char* string;
+
+  string = string_alloc(1 + string_length(opt) + 1 + string_length(op1) + 1 + string_length(op2) + 1 + string_length(op3) + 1);
+
+  sprintf4(string, "(%s %s %s %s)", opt, op1, op2, op3);
+
+  return string;
+}
+
 uint64_t find_merge_location(uint64_t beq_imm) {
   uint64_t original_pc;
   uint64_t original_imm;
@@ -7767,12 +7790,47 @@ void merge(uint64_t* context1, uint64_t* context2, uint64_t location) {
   print_code_context_for_instruction(location);
   println();
 
+  merge_symbolic_store(context1, context2);
+
+
   // since we do not actually merge yet,
   // we need to store the context in order to finish it later
   add_unfinished_context(context2);
   current_mergeable_context = (uint64_t*) 0;
   context1 = context1 + 0; // no warning
 }
+
+void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
+  uint64_t* sword1;
+  uint64_t* sword2;
+
+  sword1 = get_symbolic_memory(context1);
+    while (sword1) {
+      sword2 = get_symbolic_memory(context2);
+      while(sword2) {
+        if(get_word_address(sword1) == get_word_address(sword2)) {
+          if(get_word_symbolic(sword1) != (char*) 0) {
+            if(get_word_symbolic(sword2) != (char*) 0)
+              set_word_symbolic(sword1, smt_ternary("ite", smt_binary("=", path_condition, 
+                get_path_condition(context1)), get_word_symbolic(sword1), get_word_symbolic(sword2)));
+            else
+              set_word_symbolic(sword1, smt_ternary("ite", smt_binary("=", path_condition, 
+                get_path_condition(context1)), get_word_symbolic(sword1), bv_constant(get_word_value(sword2))));
+          } else {
+            if(get_word_symbolic(sword2) != (char*) 0)
+              set_word_symbolic(sword1, smt_ternary("ite", smt_binary("=", path_condition, 
+                get_path_condition(context1)), bv_constant(get_word_value(sword1)), get_word_symbolic(sword2)));
+          else
+            if(get_word_value(sword1) != get_word_value(sword2))
+              set_word_symbolic(sword1, smt_ternary("ite", smt_binary("=", path_condition, 
+                get_path_condition(context1)), bv_constant(get_word_value(sword1)), bv_constant(get_word_value(sword2))));
+          }
+        }
+        sword2 = get_next_word(sword2);
+      }
+    sword1 = get_next_word(sword1);
+    }
+  }
 
 uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
   uint64_t merge_not_finished;
