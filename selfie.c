@@ -7262,6 +7262,8 @@ void constrain_beq() {
   set_beq_counter(current_context, get_beq_counter(current_context) + 1);
 
   if(get_beq_counter(current_context) < BEQ_LIMIT) {
+    set_symbolic_memory(current_context, symbolic_memory);
+
     // we may be able to merge with this context later
     add_waiting_context(copy_context(current_context,
       pc + imm,
@@ -7283,7 +7285,7 @@ void constrain_beq() {
   } else {
     // if the limit of symbolic beq instructions is reached, the path still continues until 
     // maximal execution depth, but only by following the true case of the next encountered symbolic beq instructions
-    smt_binary("and", pvar, bvar);
+    path_condition = smt_binary("and", pvar, bvar);
   
     pc = pc + imm;
   }
@@ -7837,6 +7839,13 @@ void merge(uint64_t* context1, uint64_t* context2, uint64_t location) {
   print_code_context_for_instruction(location);
   println();
 
+  print("Context 1");
+  print(get_word_symbolic(symbolic_memory));
+  println();
+  print("Context 2");
+  print(get_word_symbolic(get_symbolic_memory(context2)));
+  println();
+
   // merging the symbolic store
   merge_symbolic_store(context1, context2);
 
@@ -7855,7 +7864,7 @@ void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
   uint64_t* sword1;
   uint64_t* sword2;
 
-  sword1 = get_symbolic_memory(context1);
+  sword1 = symbolic_memory;
   while (sword1) {
     if(get_word_address(sword1) != (uint64_t) -1) {
       sword2 = get_symbolic_memory(context2);
@@ -7915,6 +7924,8 @@ void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
   sword1 = get_next_word(sword1);
   }
 
+  set_symbolic_memory(context1, symbolic_memory);
+
   sword2 = get_symbolic_memory(context2);
 
   while(sword2) {
@@ -7942,7 +7953,8 @@ uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
     if(context == (uint64_t*) 0) {
       mergeable = 0;
       pauseable = 0;
-    }
+    } else
+      symbolic_memory = get_symbolic_memory(context);
 
     // check if the context can be merged
     // with one or more mergeable contexts
@@ -9462,6 +9474,7 @@ uint64_t monster(uint64_t* to_context) {
     } else {
       exception = handle_exception(from_context);
       if (exception == EXIT) {
+        set_symbolic_memory(from_context, symbolic_memory);
         // if a context is currently waiting to be merged, we need to switch to this one
         if(current_mergeable_context != (uint64_t*) 0) {
           // update the merge location, so the 'new' context can be merged later
@@ -9509,6 +9522,7 @@ uint64_t monster(uint64_t* to_context) {
           return EXITCODE_NOERROR;
         }
       } else if (exception == MERGE) {
+        set_symbolic_memory(from_context, symbolic_memory);
         to_context = merge_if_possible_and_get_context(get_waiting_context());
 
         timeout = max_execution_depth - get_execution_depth(to_context);
