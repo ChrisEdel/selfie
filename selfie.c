@@ -7839,13 +7839,6 @@ void merge(uint64_t* context1, uint64_t* context2, uint64_t location) {
   print_code_context_for_instruction(location);
   println();
 
-  print("Context 1");
-  print(get_word_symbolic(symbolic_memory));
-  println();
-  print("Context 2");
-  print(get_word_symbolic(get_symbolic_memory(context2)));
-  println();
-
   // merging the symbolic store
   merge_symbolic_store(context1, context2);
 
