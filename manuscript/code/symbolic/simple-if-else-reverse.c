@@ -19,10 +19,10 @@ uint64_t main() {
 
   *x = *x - 47;
 
-  if (*x == 2)
-    a = a + *x;
-  else
+  if (*x != 2)
     a = a + (*x * 0);
+  else
+    a = a + *x;
 
   if (a == 42)
     exit(1);
