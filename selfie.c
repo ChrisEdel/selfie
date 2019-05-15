@@ -7850,7 +7850,10 @@ void merge(uint64_t* context1, uint64_t* context2, uint64_t location) {
   // since we do not actually merge yet,
   // we need to store the context in order to finish it later
   // add_unfinished_context(context2); TODO: remove the unfinished contexts stack once the merge implementation is finished
-  current_mergeable_context = (uint64_t*) 0;
+  current_mergeable_context = get_mergeable_context();
+  if(current_mergeable_context != (uint64_t*) 0)
+    if(pc == get_pc(current_mergeable_context))
+      merge(context1, current_mergeable_context, pc);
 }
 
 void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
