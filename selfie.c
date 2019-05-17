@@ -8017,8 +8017,15 @@ uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
           pauseable = 0;
         }
 
-      } else
+      } else {
+        if(current_mergeable_context == (uint64_t*) 0)
+          current_mergeable_context = get_mergeable_context();
+        if(current_mergeable_context != (uint64_t*) 0)
+        if(get_pc(context) == get_pc(current_mergeable_context))
+          mergeable = 1;
+        
         pauseable = 0;
+      }
     }
 
     if(mergeable == 0)
