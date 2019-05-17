@@ -1277,7 +1277,7 @@ uint64_t* current_mergeable_context = (uint64_t*) 0;
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
-uint64_t BEQ_LIMIT = 20;  // limit of symbolic beq instructions on any given path
+uint64_t BEQ_LIMIT = 100;  // limit of symbolic beq instructions on any given path
 
 // -----------------------------------------------------------------
 // -------------------------- INTERPRETER --------------------------
@@ -7859,6 +7859,7 @@ void merge(uint64_t* context1, uint64_t* context2, uint64_t location) {
 void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
   uint64_t* sword1;
   uint64_t* sword2;
+  uint64_t i;
 
   sword1 = symbolic_memory;
   while (sword1) {
@@ -7906,7 +7907,7 @@ void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
                 set_word_symbolic(sword1, 
                   smt_ternary("ite", 
                     get_path_condition(context1), 
-                    bv_constant(get_word_value(sword1)), 
+                    bv_constant(get_word_value(sword1)),
                     bv_constant(get_word_value(sword2)))
                 );
                 set_word_address(sword2, -1);
@@ -7922,8 +7923,9 @@ void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
 
   set_symbolic_memory(context1, symbolic_memory);
 
+  /*
   sword2 = get_symbolic_memory(context2);
-
+  
   while(sword2) {
     if(get_word_address(sword2) != (uint64_t) -1) {
       store_symbolic_memory(get_word_address(sword2), get_word_value(sword2), get_word_symbolic(sword2), 0, get_number_of_bits(sword2));
@@ -7933,6 +7935,37 @@ void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
 
     sword2 = get_next_word(sword2);
   }
+  */
+  
+
+
+  i = 0;
+  while(i < NUMBEROFREGISTERS) {
+    if(*(get_symbolic_regs(context1) + i) != 0) {
+      if(*(get_symbolic_regs(context2) + i) != 0) {
+        if(*(get_symbolic_regs(context1) + i) != *(get_symbolic_regs(context2) + i)) {
+          *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), (char*) *(get_symbolic_regs(context1) + i), (char*) *(get_symbolic_regs(context2) + i));
+        }
+      } else {
+        if(*(get_symbolic_regs(context1) + i) != *(get_regs(context2) + i)) {
+          *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), (char*) *(get_symbolic_regs(context1) + i), bv_constant(*(get_regs(context2) + i)));
+        }
+      }
+    } else {
+      if(*(get_symbolic_regs(context2) + i) != 0) {
+        if(*(get_regs(context1) + i) != *(get_symbolic_regs(context2) + i)) {
+          *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), bv_constant(*(get_regs(context1) + i)), (char*) *(get_symbolic_regs(context2) + i));
+        }
+      } else {
+        if(*(get_regs(context1) + i) != *(get_regs(context2) + i)) {
+          *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), bv_constant(*(get_regs(context1) + i)), bv_constant(*(get_regs(context2) + i)));
+        }
+      }
+    }
+  
+  i = i + 1;
+  }
+  set_symbolic_regs(context1, reg_sym);
 }
 
 uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
