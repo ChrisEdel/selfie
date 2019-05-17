@@ -23,7 +23,7 @@ uint64_t main() {
     a = a + *x;
 
   if (a == 42)
-    exit(1);
+    return 1;
   else
-    exit(0);
+    return 0;
 }
