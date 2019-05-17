@@ -7988,7 +7988,8 @@ uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
     // check if the context can be merged
     // with one or more mergeable contexts
     while(mergeable) {
-      current_mergeable_context = get_mergeable_context();
+      if(current_mergeable_context == (uint64_t*) 0)
+        current_mergeable_context = get_mergeable_context();
 
       if(current_mergeable_context != (uint64_t*) 0) {
 
