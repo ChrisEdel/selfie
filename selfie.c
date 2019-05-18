@@ -7731,6 +7731,7 @@ uint64_t find_merge_location(uint64_t beq_imm) {
   uint64_t original_pc;
   uint64_t original_imm;
   uint64_t merge_location;
+  uint64_t temp;
 
   original_pc = pc;
   original_imm = imm;
@@ -7756,6 +7757,20 @@ uint64_t find_merge_location(uint64_t beq_imm) {
       // jal with negative imm -> end of loop body
       // only outside the loop a merge is possible
       merge_location = pc + INSTRUCTIONSIZE;
+  }
+
+  pc = merge_location;
+  while(temp) {
+    fetch();
+    decode();
+    if(is == BEQ) {
+      temp = 0;
+    } else if (is == JALR) {
+      merge_location = -1;
+      temp = 0;
+    }
+    pc = pc + INSTRUCTIONSIZE;
+
   }
 
   pc = original_pc;
