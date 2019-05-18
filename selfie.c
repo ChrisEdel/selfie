@@ -1275,6 +1275,11 @@ uint64_t* waiting_contexts          = (uint64_t*) 0; // contexts that are waitin
 uint64_t* unfinished_contexts       = (uint64_t*) 0; // contexts that would have been merged
 uint64_t* current_mergeable_context = (uint64_t*) 0;
 
+
+uint64_t is_recursive = 0;
+uint64_t rec_merge_point = 0;
+uint64_t prologue_start = 0;
+
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
 uint64_t BEQ_LIMIT = 100;  // limit of symbolic beq instructions on any given path
@@ -7749,31 +7754,29 @@ uint64_t find_merge_location(uint64_t beq_imm) {
     // merge directly at jump location possible
     merge_location = original_pc + beq_imm;
   else {
-    if(signed_less_than(imm, 0) == 0)
+    if(signed_less_than(imm, 0) == 0) { 
       // jal with positive imm -> end of if with else branch
       // we have to skip the else branch
       merge_location = pc + imm;
+
+      pc = original_pc + INSTRUCTIONSIZE;
+      while(pc != merge_location) {
+        fetch();
+        decode();
+        if(is == JAL) {
+          if(pc + imm == prologue_start) {
+            is_recursive = 1;
+            merge_location = rec_merge_point + 2 * INSTRUCTIONSIZE;
+          }
+        }
+        pc = pc + INSTRUCTIONSIZE;
+      }
+    }
     else
       // jal with negative imm -> end of loop body
       // only outside the loop a merge is possible
       merge_location = pc + INSTRUCTIONSIZE;
   }
-
-  pc = merge_location;
-  temp = 1;
-  while(temp) {
-    fetch();
-    decode();
-    if(is == BEQ) {
-      temp = 0;
-    } else if (is == JALR) {
-      merge_location = -1;
-      temp = 0;
-    }
-    pc = pc + INSTRUCTIONSIZE;
-
-  }
-
   pc = original_pc;
   imm = original_imm;
 
@@ -8384,6 +8387,8 @@ void execute_debug() {
 }
 
 void execute_symbolically() {
+  uint64_t original_pc;
+  uint64_t temp;
   // assert: 1 <= is <= number of RISC-U instructions
   if (is == ADDI) {
     constrain_addi();
@@ -8413,8 +8418,40 @@ void execute_symbolically() {
     do_sltu();
   } else if (is == BEQ)
     constrain_beq();
-  else if (is == JAL)
+  else if (is == JAL) {
+    temp = pc;
     do_jal();
+    original_pc = pc;
+    fetch();
+    decode();
+    if(is == ADDI) {
+      pc = pc + INSTRUCTIONSIZE;
+      fetch();
+      decode();
+      if(is == SD) {
+        pc = pc + INSTRUCTIONSIZE;
+        fetch();
+        decode();
+        if(is == ADDI) {
+          pc = pc + INSTRUCTIONSIZE;
+          fetch();
+          decode();
+          if(is == SD) {
+            pc = pc + INSTRUCTIONSIZE;
+            fetch();
+            decode();
+            if(is == ADDI) {
+              if(is_recursive == 0) {
+                rec_merge_point = temp + 2 * INSTRUCTIONSIZE;
+                prologue_start = original_pc;
+              }
+            }
+          }
+        }
+      }
+    }
+    pc = original_pc;
+  }
   else if (is == JALR) {
     constrain_jalr();
     do_jalr();
