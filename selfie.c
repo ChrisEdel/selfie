@@ -7760,6 +7760,7 @@ uint64_t find_merge_location(uint64_t beq_imm) {
   }
 
   pc = merge_location;
+  temp = 1;
   while(temp) {
     fetch();
     decode();
