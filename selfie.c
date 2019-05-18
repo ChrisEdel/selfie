@@ -7736,7 +7736,6 @@ uint64_t find_merge_location(uint64_t beq_imm) {
   uint64_t original_pc;
   uint64_t original_imm;
   uint64_t merge_location;
-  uint64_t temp;
 
   original_pc = pc;
   original_imm = imm;
