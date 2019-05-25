@@ -8,11 +8,11 @@ performs division by zero or invalid/unsafe memory accesses.
 Input == #b00110001 (== 49 == '1')
 */
 
-uint64_t fac(uint64_t n) {
+uint64_t factorial(uint64_t n) {
   if (n <= 1)
     return n;
   else
-    return n * fac(n - 1);
+    return n * factorial(n - 1);
 }
 
 uint64_t main() {
@@ -25,7 +25,7 @@ uint64_t main() {
 
   *x = *x - 35;
 
-  a = fac(*x);
+  a = factorial(*x);
 
   if (a == 87178291200)
     return 1;
