@@ -1249,6 +1249,11 @@ uint64_t* get_waiting_context();
 void      add_unfinished_context(uint64_t* context);
 uint64_t* get_unfinished_context();
 
+void      add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t merge_location);
+uint64_t  get_potential_recursive_merge_location(uint64_t prologue_start);
+uint64_t  has_potential_recursive_merge_location(uint64_t prologue_start);
+void      delete_potential_recursive_merge_location();
+
 void      merge(uint64_t* context1, uint64_t* context2, uint64_t location);
 void      merge_symbolic_store(uint64_t* context1, uint64_t* context2);
 uint64_t* merge_if_possible_and_get_context(uint64_t* context);
@@ -1274,6 +1279,7 @@ uint64_t* mergeable_contexts        = (uint64_t*) 0; // contexts that are ready 
 uint64_t* waiting_contexts          = (uint64_t*) 0; // contexts that are waiting to be executed after a beq
 uint64_t* unfinished_contexts       = (uint64_t*) 0; // contexts that would have been merged
 uint64_t* current_mergeable_context = (uint64_t*) 0;
+uint64_t* potential_recursive_merge_locations = (uint64_t*) 0;
 
 
 uint64_t is_recursive = 0;
@@ -7763,9 +7769,9 @@ uint64_t find_merge_location(uint64_t beq_imm) {
         fetch();
         decode();
         if(is == JAL) {
-          if(pc + imm == prologue_start) {
+          if(has_potential_recursive_merge_location(pc + imm)) {
             is_recursive = 1;
-            merge_location = rec_merge_point + 2 * INSTRUCTIONSIZE;
+            merge_location = get_potential_recursive_merge_location(pc + imm) + 2 * INSTRUCTIONSIZE;
           }
         }
         pc = pc + INSTRUCTIONSIZE;
@@ -7778,7 +7784,6 @@ uint64_t find_merge_location(uint64_t beq_imm) {
   }
   pc = original_pc;
   imm = original_imm;
-
   return merge_location;
 }
 
@@ -7851,11 +7856,66 @@ uint64_t* get_unfinished_context() {
   return (uint64_t*) *(head + 1);
 }
 
+void add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t merge_location) {
+  uint64_t* entry;
+
+  entry = potential_recursive_merge_locations;
+  while(entry) {
+    if(*(entry + 1) == prologue_start)
+      return;
+
+    entry = (uint64_t*) *(entry + 0);
+  }
+
+  entry = smalloc(3 * SIZEOFUINT64STAR);
+
+  *(entry + 0) = (uint64_t) potential_recursive_merge_locations;
+  *(entry + 1) = (uint64_t) prologue_start;
+  *(entry + 2) = (uint64_t) merge_location;
+
+
+  potential_recursive_merge_locations = entry;
+}
+
+uint64_t get_potential_recursive_merge_location(uint64_t prologue_start) {
+  uint64_t* entry;
+
+  entry = potential_recursive_merge_locations;
+  while(entry) {
+    if(*(entry + 1) == prologue_start)
+      return (uint64_t) *(entry + 2);
+
+    entry = (uint64_t*) *(entry + 0);
+  }
+  return -1;
+}
+
+uint64_t has_potential_recursive_merge_location(uint64_t prologue_start) {
+  uint64_t* entry;
+
+  entry = potential_recursive_merge_locations;
+  while(entry) {
+    if(*(entry + 1) == prologue_start)
+      return 1;
+
+    entry = (uint64_t*) *(entry + 0);
+  }
+  return 0;
+}
+
+void delete_potential_recursive_merge_location() {
+  potential_recursive_merge_locations = (uint64_t*) *(potential_recursive_merge_locations + 0);
+}
+
 // TODO: implement the actual merge
 void merge(uint64_t* context1, uint64_t* context2, uint64_t location) {
   print("; merge possible at ");
   print_code_context_for_instruction(location);
   println();
+
+  if(potential_recursive_merge_locations != (uint64_t*) 0)
+    if(get_pc(context1) == *(potential_recursive_merge_locations + 2))
+      is_recursive = 0;
 
   // merging the symbolic store
   merge_symbolic_store(context1, context2);
@@ -8443,7 +8503,11 @@ void execute_symbolically() {
               if(is_recursive == 0) {
                 rec_merge_point = temp + 2 * INSTRUCTIONSIZE;
                 prologue_start = original_pc;
-              }
+             } else {
+                rec_merge_point = *(potential_recursive_merge_locations + 2);
+                prologue_start = original_pc;
+             }
+             add_potential_recursive_merge_location(prologue_start, rec_merge_point);
             }
           }
         }
