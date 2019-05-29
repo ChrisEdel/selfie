@@ -1492,9 +1492,8 @@ uint64_t* delete_context(uint64_t* context, uint64_t* from);
 // | 17 | path condition  | pointer to path condition
 // | 18 | symbolic memory | pointer to symbolic memory
 // | 19 | symbolic regs   | pointer to symbolic registers
-// | 20 | related context | pointer to list of contexts of related branches
-// | 21 | beq counter     | number of executed symbolic beq instructions
-// | 22 | merge location  | program location at which the context can potentially be merged
+// | 20 | beq counter     | number of executed symbolic beq instructions
+// | 21 | merge location  | program location at which the context can potentially be merged
 // +----+-----------------+
 
 uint64_t* allocate_context() {
@@ -1543,9 +1542,8 @@ uint64_t  get_execution_depth(uint64_t* context) { return             *(context 
 char*     get_path_condition(uint64_t* context)  { return (char*)     *(context + 17); }
 uint64_t* get_symbolic_memory(uint64_t* context) { return (uint64_t*) *(context + 18); }
 uint64_t* get_symbolic_regs(uint64_t* context)   { return (uint64_t*) *(context + 19); }
-uint64_t* get_related_context(uint64_t* context) { return (uint64_t*) *(context + 20); }
-uint64_t  get_beq_counter(uint64_t* context)     { return             *(context + 21); }
-uint64_t  get_merge_location(uint64_t* context)  { return             *(context + 22); }
+uint64_t  get_beq_counter(uint64_t* context)     { return             *(context + 20); }
+uint64_t  get_merge_location(uint64_t* context)  { return             *(context + 21); }
 
 void set_next_context(uint64_t* context, uint64_t* next)      { *context        = (uint64_t) next; }
 void set_prev_context(uint64_t* context, uint64_t* prev)      { *(context + 1)  = (uint64_t) prev; }
@@ -1568,9 +1566,8 @@ void set_execution_depth(uint64_t* context, uint64_t depth)    { *(context + 16)
 void set_path_condition(uint64_t* context, char* path)         { *(context + 17) = (uint64_t) path; }
 void set_symbolic_memory(uint64_t* context, uint64_t* memory)  { *(context + 18) = (uint64_t) memory; }
 void set_symbolic_regs(uint64_t* context, uint64_t* regs)      { *(context + 19) = (uint64_t) regs; }
-void set_related_context(uint64_t* context, uint64_t* related) { *(context + 20) = (uint64_t) related; }
-void set_beq_counter(uint64_t* context, uint64_t counter)      { *(context + 21) =            counter; }
-void set_merge_location(uint64_t* context, uint64_t location)  { *(context + 22) =            location; }
+void set_beq_counter(uint64_t* context, uint64_t counter)      { *(context + 20) =            counter; }
+void set_merge_location(uint64_t* context, uint64_t location)  { *(context + 21) =            location; }
 
 // -----------------------------------------------------------------
 // -------------------------- MICROKERNEL --------------------------
