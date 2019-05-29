@@ -4,27 +4,27 @@ rm manuscript/code/symbolic/*.t
 echo "monster finished simple-if-without-else"
 ./selfie -c manuscript/code/symbolic/simple-if-else.c -n 0 -n 0 > /dev/null
 echo "monster finished simple-if-else"
-./selfie -c manuscript/code/symbolic/simple-if-else-reverse.c -n 0 >/dev/null
+./selfie -c manuscript/code/symbolic/simple-if-else-reverse.c -n 0 > /dev/null
 echo "monster finished simple-if-else-reverse"
-./selfie -c manuscript/code/symbolic/nested-if-else.c -n 0 >/dev/null
+./selfie -c manuscript/code/symbolic/nested-if-else.c -n 0 > /dev/null
 echo "monster finished nested-if-else"
-./selfie -c manuscript/code/symbolic/nested-if-else-reverse.c -n 0 >/dev/null
+./selfie -c manuscript/code/symbolic/nested-if-else-reverse.c -n 0 > /dev/null
 echo "monster finished nested-if-else-reverse"
-./selfie -c manuscript/code/symbolic/simple-loop.c -n 0 >/dev/null
+./selfie -c manuscript/code/symbolic/simple-loop.c -n 0 > /dev/null
 echo "monster finished simple-loop"
-./selfie -c manuscript/code/symbolic/simple-reducing-loop.c -n 0 >/dev/null
+./selfie -c manuscript/code/symbolic/simple-reducing-loop.c -n 0 > /dev/null
 echo "monster finished simple-reducing-loop"
-./selfie -c manuscript/code/symbolic/nested-loop.c -n 500 >/dev/null
+./selfie -c manuscript/code/symbolic/nested-loop.c -n 500 > /dev/null
 echo "monster finished nested-loop"
-./selfie -c manuscript/code/symbolic/nested-nested-loop.c -n 500 >/dev/null
+./selfie -c manuscript/code/symbolic/nested-nested-loop.c -n 500 > /dev/null
 echo "monster finished nested-nested-loop"
-./selfie -c manuscript/code/symbolic/recursive-fibonacci.c -n 200 >/dev/null
+./selfie -c manuscript/code/symbolic/recursive-fibonacci.c -n 200 > /dev/null
 echo "monster finished recursive-fibonacci"
-./selfie -c manuscript/code/symbolic/recursive-factorial.c -n 1000 >/dev/null
+./selfie -c manuscript/code/symbolic/recursive-factorial.c -n 1000 > /dev/null
 echo "monster finished recursive-factorial"
-./selfie -c manuscript/code/symbolic/recursive-nested.c -n 1000 >/dev/null
+./selfie -c manuscript/code/symbolic/recursive-nested.c -n 1000 > /dev/null
 echo "monster finished recursive-nested"
-./selfie -c manuscript/code/symbolic/simple-assignment.c -n 0 >/dev/null
+./selfie -c manuscript/code/symbolic/simple-assignment.c -n 0 > /dev/null
 echo "monster finished simple-assignment"
 
 echo "monster finished all examples"
