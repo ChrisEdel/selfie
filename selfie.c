@@ -1249,7 +1249,6 @@ uint64_t* get_waiting_context();
 void      add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t merge_location);
 uint64_t  get_potential_recursive_merge_location(uint64_t prologue_start);
 uint64_t  has_potential_recursive_merge_location(uint64_t prologue_start);
-void      delete_potential_recursive_merge_location();
 
 void      merge(uint64_t* context1, uint64_t* context2, uint64_t location);
 void      merge_symbolic_store(uint64_t* context1, uint64_t* context2);
@@ -7872,10 +7871,6 @@ uint64_t has_potential_recursive_merge_location(uint64_t prologue_start) {
     entry = (uint64_t*) *(entry + 0);
   }
   return 0;
-}
-
-void delete_potential_recursive_merge_location() {
-  potential_recursive_merge_locations = (uint64_t*) *(potential_recursive_merge_locations + 0);
 }
 
 // TODO: implement the actual merge
