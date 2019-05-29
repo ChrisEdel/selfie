@@ -1246,9 +1246,6 @@ uint64_t* get_mergeable_context();
 void      add_waiting_context(uint64_t* context);
 uint64_t* get_waiting_context();
 
-void      add_unfinished_context(uint64_t* context);
-uint64_t* get_unfinished_context();
-
 void      add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t merge_location);
 uint64_t  get_potential_recursive_merge_location(uint64_t prologue_start);
 uint64_t  has_potential_recursive_merge_location(uint64_t prologue_start);
@@ -7830,29 +7827,6 @@ uint64_t* get_waiting_context() {
   return (uint64_t*) *(head + 1);
 }
 
-void add_unfinished_context(uint64_t* context) {
-  uint64_t* entry;
-
-  entry = smalloc(2 * SIZEOFUINT64STAR);
-
-  *(entry + 0) = (uint64_t) unfinished_contexts;
-  *(entry + 1) = (uint64_t) context;
-
-  unfinished_contexts = entry;
-}
-
-uint64_t* get_unfinished_context() {
-  uint64_t* head;
-
-  if(unfinished_contexts == (uint64_t*) 0)
-    return (uint64_t*) 0;
-
-  head = unfinished_contexts;
-  unfinished_contexts = (uint64_t*) *(head + 0);
-
-  return (uint64_t*) *(head + 1);
-}
-
 void add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t merge_location) {
   uint64_t* entry;
 
@@ -8112,14 +8086,6 @@ uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
   // not merged yet
   if(context == (uint64_t*) 0)
     context = get_mergeable_context();
-
-  // since we do not actually merge yet,
-  // we need to finish contexts which would have been merged
-  if(context == (uint64_t*) 0) {  
-    context = get_unfinished_context();
-    if(context)
-      set_merge_location(context, -1);
-  }
 
   return context;
 }
@@ -9642,15 +9608,6 @@ uint64_t monster(uint64_t* to_context) {
             // update the merge location, so the 'new' context can be merged later
             set_merge_location(to_context, get_merge_location(current_context));
         }
-
-        // since we do not actually merge yet,
-        // we need to finish contexts which would have been merge
-        if(to_context == (uint64_t*) 0) {  
-          to_context = get_unfinished_context();
-          if(to_context)
-            // cannot be merged anymore since they have already been 'merged'
-            set_merge_location(to_context, -1);
-        } 
 
         to_context = merge_if_possible_and_get_context(to_context);
 
