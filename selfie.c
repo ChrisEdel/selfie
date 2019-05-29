@@ -8806,7 +8806,6 @@ void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt) {
     set_path_condition(context, "true");
     set_symbolic_memory(context, (uint64_t*) 0);
     set_symbolic_regs(context, zalloc(NUMBEROFREGISTERS * REGISTERSIZE));
-    set_related_context(context, (uint64_t*) 0);
     set_beq_counter(context, 0);
     set_merge_location(context, -1);
   }
@@ -8857,8 +8856,6 @@ uint64_t* copy_context(uint64_t* original, uint64_t location, char* condition, u
 
     r = r + 1;
   }
-
-  set_related_context(context, symbolic_contexts);
 
   symbolic_contexts = context;
 
