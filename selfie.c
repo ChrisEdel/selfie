@@ -7931,9 +7931,10 @@ void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
                   smt_ternary("ite", 
                     get_path_condition(context1), 
                     get_word_symbolic(sword1), 
-                    get_word_symbolic(sword2))
+                    get_word_symbolic(sword2)
+                  )
                 );
-                // 'delete' the symbolic word since it does not need to be merged again
+                // 'delete' the value since it does not need to be merged again
                 set_word_address(sword2, -1);
               }
             } else {
@@ -7942,78 +7943,66 @@ void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
                 smt_ternary("ite", 
                   get_path_condition(context1), 
                   get_word_symbolic(sword1), 
-                  bv_constant(get_word_value(sword2)))
+                  bv_constant(get_word_value(sword2))
+                )
               );
+              // 'delete' the value since it does not need to be merged again
               set_word_address(sword2, -1);
             }
           } else {
-            if(get_word_symbolic(sword2) != (char*) 0) {
+            if (get_word_symbolic(sword2) != (char*) 0) {
               // merge concrete value and symbolic value
               set_word_symbolic(sword1, 
                 smt_ternary("ite", 
                   get_path_condition(context1), 
                   bv_constant(get_word_value(sword1)), 
-                  get_word_symbolic(sword2))
+                  get_word_symbolic(sword2)
+                )
               );
               set_word_address(sword2, -1);
-            }
-            else
-              if(get_word_value(sword1) != get_word_value(sword2)) {
+            } else {
+              if (get_word_value(sword1) != get_word_value(sword2)) {
                 // merge concrete values if they are different
                 set_word_symbolic(sword1, 
                   smt_ternary("ite", 
                     get_path_condition(context1), 
                     bv_constant(get_word_value(sword1)),
-                    bv_constant(get_word_value(sword2)))
+                    bv_constant(get_word_value(sword2))
+                  )
                 );
                 set_word_address(sword2, -1);
               }
+            }
           }
         }
-          
+
         sword2 = get_next_word(sword2);
       }
     }
   sword1 = get_next_word(sword1);
   }
 
-  set_symbolic_memory(context1, symbolic_memory);
-
-  /*
-  sword2 = get_symbolic_memory(context2);
-  
-  while(sword2) {
-    if(get_word_address(sword2) != (uint64_t) -1) {
-      store_symbolic_memory(get_word_address(sword2), get_word_value(sword2), get_word_symbolic(sword2), 0, get_number_of_bits(sword2));
-
-      set_word_address(sword2, -1);
-    }
-
-    sword2 = get_next_word(sword2);
-  }
-  */
-  
-
+  set_symbolic_memory(context1, symbolic_memory);  
 
   i = 0;
-  while(i < NUMBEROFREGISTERS) {
-    if(*(get_symbolic_regs(context1) + i) != 0) {
-      if(*(get_symbolic_regs(context2) + i) != 0) {
-        if(*(get_symbolic_regs(context1) + i) != *(get_symbolic_regs(context2) + i)) {
+  while (i < NUMBEROFREGISTERS) {
+    if (*(get_symbolic_regs(context1) + i) != 0) {
+      if (*(get_symbolic_regs(context2) + i) != 0) {
+        if (*(get_symbolic_regs(context1) + i) != *(get_symbolic_regs(context2) + i)) {
+          // merge symbolic values if they are different
           *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), (char*) *(get_symbolic_regs(context1) + i), (char*) *(get_symbolic_regs(context2) + i));
         }
       } else {
-        if(*(get_symbolic_regs(context1) + i) != *(get_regs(context2) + i)) {
-          *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), (char*) *(get_symbolic_regs(context1) + i), bv_constant(*(get_regs(context2) + i)));
-        }
+        // merge symbolic value and concrete value
+        *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), (char*) *(get_symbolic_regs(context1) + i), bv_constant(*(get_regs(context2) + i)));
       }
     } else {
-      if(*(get_symbolic_regs(context2) + i) != 0) {
-        if(*(get_regs(context1) + i) != *(get_symbolic_regs(context2) + i)) {
-          *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), bv_constant(*(get_regs(context1) + i)), (char*) *(get_symbolic_regs(context2) + i));
-        }
+      if (*(get_symbolic_regs(context2) + i) != 0) {
+        // merge concrete value and symbolic value
+        *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), bv_constant(*(get_regs(context1) + i)), (char*) *(get_symbolic_regs(context2) + i));
       } else {
-        if(*(get_regs(context1) + i) != *(get_regs(context2) + i)) {
+        if (*(get_regs(context1) + i) != *(get_regs(context2) + i)) {
+          // merge concrete values if they are different
           *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), bv_constant(*(get_regs(context1) + i)), bv_constant(*(get_regs(context2) + i)));
         }
       }
@@ -8021,6 +8010,7 @@ void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
   
   i = i + 1;
   }
+  
   set_symbolic_regs(context1, reg_sym);
 }
 
