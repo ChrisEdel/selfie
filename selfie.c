@@ -8498,15 +8498,15 @@ void interrupt() {
     }
   }
 
-  if(symbolic) {
-    if(current_mergeable_context != (uint64_t*) 0)
+  if (symbolic) {
+    if (current_mergeable_context != (uint64_t*) 0)
       // if both contexts are at the same program location,
       // they can be merged
-      if(pc == get_merge_location(current_mergeable_context))
+      if (pc == get_pc(current_mergeable_context))
         merge(current_context, current_mergeable_context, pc);
     
     // check if the current context has reached a merge location
-    if(pc == get_merge_location(current_context))
+    if (pc == get_merge_location(current_context))
       if (get_exception(current_context) == EXCEPTION_NOEXCEPTION)
         // only throw exception if no other is pending
         // TODO: handle multiple pending exceptions
@@ -9584,7 +9584,7 @@ uint64_t monster(uint64_t* to_context) {
       if (exception == EXIT) {
         set_symbolic_memory(from_context, symbolic_memory);
         // if a context is currently waiting to be merged, we need to switch to this one
-        if(current_mergeable_context != (uint64_t*) 0) {
+        if (current_mergeable_context != (uint64_t*) 0) {
           // update the merge location, so the 'new' context can be merged later
           set_merge_location(current_mergeable_context, get_merge_location(current_context));
           to_context = current_mergeable_context;
@@ -9596,17 +9596,17 @@ uint64_t monster(uint64_t* to_context) {
 
         // it may be possible that there are no waiting contexts,
         // but mergeable contexts
-        if(to_context == (uint64_t*) 0) {
+        if (to_context == (uint64_t*) 0) {
           to_context = get_mergeable_context();
 
-          if(to_context)
+          if (to_context)
             // update the merge location, so the 'new' context can be merged later
             set_merge_location(to_context, get_merge_location(current_context));
         }
 
         to_context = merge_if_possible_and_get_context(to_context);
 
-        if(to_context)
+        if (to_context)
           timeout = max_execution_depth - get_execution_depth(to_context);
         else {
           print("\n(exit)");
