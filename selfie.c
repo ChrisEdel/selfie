@@ -8010,7 +8010,6 @@ void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
   
   i = i + 1;
   }
-  
   set_symbolic_regs(context1, reg_sym);
 }
 
@@ -8020,12 +8019,12 @@ uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
   uint64_t pauseable;
 
   merge_not_finished = 1;
-  while(merge_not_finished) {
+  while (merge_not_finished) {
     mergeable = 1;
     pauseable = 1;
 
-    // break out of the loop
-    if(context == (uint64_t*) 0) {
+    if (context == (uint64_t*) 0) {
+      // break out of the loop
       mergeable = 0;
       pauseable = 0;
     } else
@@ -8033,27 +8032,24 @@ uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
 
     // check if the context can be merged
     // with one or more mergeable contexts
-    while(mergeable) {
-      if(current_mergeable_context == (uint64_t*) 0)
+    while (mergeable) {
+      if (current_mergeable_context == (uint64_t*) 0)
         current_mergeable_context = get_mergeable_context();
 
-      if(current_mergeable_context != (uint64_t*) 0) {
-
-        if(get_pc(context) == get_pc(current_mergeable_context))
+      if (current_mergeable_context != (uint64_t*) 0) {
+        if (get_pc(context) == get_pc(current_mergeable_context))
           merge(context, current_mergeable_context, get_pc(context));
         else
           mergeable = 0;
 
       } else
         mergeable = 0;
-
     }
     
     // check if the context has reached a merge location
     // and needs to be paused
-    while(pauseable) {
-
-      if(get_pc(context) == get_merge_location(context)) {
+    while (pauseable) {
+      if (get_pc(context) == get_merge_location(context)) {
         add_mergeable_context(context);
         context = get_waiting_context();
         
@@ -8064,11 +8060,12 @@ uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
         }
 
       } else {
-        if(current_mergeable_context == (uint64_t*) 0)
+        if (current_mergeable_context == (uint64_t*) 0)
           current_mergeable_context = get_mergeable_context();
-        if(current_mergeable_context != (uint64_t*) 0)
-        if(get_pc(context) == get_pc(current_mergeable_context))
-          mergeable = 1;
+        
+        if (current_mergeable_context != (uint64_t*) 0)
+          if (get_pc(context) == get_pc(current_mergeable_context))
+            mergeable = 1;
         
         pauseable = 0;
       }
@@ -8437,6 +8434,7 @@ void execute_symbolically() {
     do_sltu();
   } else if (is == BEQ)
     constrain_beq();
+    // TODO
   else if (is == JAL) {
     temp = pc;
     do_jal();
