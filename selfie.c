@@ -7738,48 +7738,55 @@ uint64_t find_merge_location(uint64_t beq_imm) {
   uint64_t original_imm;
   uint64_t merge_location;
 
+  // assert: the current instruction is a symbolic beq instruction
   original_pc = pc;
   original_imm = imm;
 
-  // examine last instruction before jump location
+  // examine last instruction before target location of jump instruction
   pc = pc + (beq_imm - INSTRUCTIONSIZE);
 
   // we need to know which instruction it is
   fetch();
   decode();
   
-  if(is != JAL)
+  if (is != JAL)
     // no jal instruction -> end of if without else branch
-    // merge directly at jump location possible
+    // merge directly at target location of jump instruction possible
     merge_location = original_pc + beq_imm;
   else {
-    if(signed_less_than(imm, 0) == 0) { 
+    if (signed_less_than(imm, 0) == 0) { 
       // jal with positive imm -> end of if with else branch
-      // we have to skip the else branch
+      // we have to skip the else branch in order to merge later
       merge_location = pc + imm;
 
       pc = original_pc + INSTRUCTIONSIZE;
-
-      while(pc != merge_location) {
-        fetch();
-        decode();
-        if(is == JAL) {
-          if(has_potential_recursive_merge_location(pc + imm)) {
-            is_recursive = 1;
-            merge_location = get_potential_recursive_merge_location(pc + imm) + 2 * INSTRUCTIONSIZE;
-          }
-        }
-        pc = pc + INSTRUCTIONSIZE;
-      }
-      
     }
     else
       // jal with negative imm -> end of loop body
-      // only outside the loop a merge is possible
+      // merge is only outside the loop possible
       merge_location = pc + INSTRUCTIONSIZE;
   }
+
+
+  // we need to check if we are inside a recursive function before we merge
+  // if we are, we merge only when the recursion is finished
+  while (pc != merge_location) {
+    fetch();
+    decode();
+    
+    if (is == JAL)
+      if (has_potential_recursive_merge_location(pc + imm)) {
+        is_recursive = 1;
+        merge_location = get_potential_recursive_merge_location(pc + imm);
+      }
+
+    pc = pc + INSTRUCTIONSIZE;
+  }
+
+  // restore the original program state
   pc = original_pc;
   imm = original_imm;
+
   return merge_location;
 }
 
