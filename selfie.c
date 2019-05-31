@@ -7773,7 +7773,7 @@ uint64_t find_merge_location(uint64_t beq_imm) {
   while (pc != merge_location) {
     fetch();
     decode();
-    
+
     if (is == JAL)
       if (has_potential_recursive_merge_location(pc + imm)) {
         is_recursive = 1;
@@ -7804,7 +7804,7 @@ void add_mergeable_context(uint64_t* context) {
 uint64_t* get_mergeable_context() {
   uint64_t* head;
 
-  if(mergeable_contexts == (uint64_t*) 0)
+  if (mergeable_contexts == (uint64_t*) 0)
     return (uint64_t*) 0;
 
   head = mergeable_contexts;
@@ -7827,7 +7827,7 @@ void add_waiting_context(uint64_t* context) {
 uint64_t* get_waiting_context() {
   uint64_t* head;
 
-  if(waiting_contexts == (uint64_t*) 0)
+  if (waiting_contexts == (uint64_t*) 0)
     return (uint64_t*) 0;
 
   head = waiting_contexts;
@@ -7836,6 +7836,7 @@ uint64_t* get_waiting_context() {
   return (uint64_t*) *(head + 1);
 }
 
+// TODO
 void add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t merge_location) {
   uint64_t* entry;
 
@@ -7857,6 +7858,7 @@ void add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t me
   potential_recursive_merge_locations = entry;
 }
 
+// TODO
 uint64_t get_potential_recursive_merge_location(uint64_t prologue_start) {
   uint64_t* entry;
 
@@ -7870,6 +7872,7 @@ uint64_t get_potential_recursive_merge_location(uint64_t prologue_start) {
   return -1;
 }
 
+// TODO
 uint64_t has_potential_recursive_merge_location(uint64_t prologue_start) {
   uint64_t* entry;
 
@@ -7883,12 +7886,12 @@ uint64_t has_potential_recursive_merge_location(uint64_t prologue_start) {
   return 0;
 }
 
-// TODO: implement the actual merge
 void merge(uint64_t* context1, uint64_t* context2, uint64_t location) {
-  print("; merge possible at ");
+  print("; merging at ");
   print_code_context_for_instruction(location);
   println();
 
+  // TODO
   if(potential_recursive_merge_locations != (uint64_t*) 0)
     if(get_pc(context1) == *(potential_recursive_merge_locations + 2))
       is_recursive = 0;
@@ -7900,13 +7903,11 @@ void merge(uint64_t* context1, uint64_t* context2, uint64_t location) {
   path_condition = smt_binary("or", get_path_condition(context1), get_path_condition(context2));
   set_path_condition(context1, path_condition);
 
-
-  // since we do not actually merge yet,
-  // we need to store the context in order to finish it later
-  // add_unfinished_context(context2); TODO: remove the unfinished contexts stack once the merge implementation is finished
   current_mergeable_context = get_mergeable_context();
-  if(current_mergeable_context != (uint64_t*) 0)
-    if(pc == get_pc(current_mergeable_context))
+
+  // it may be possible that more contexts can be merged
+  if (current_mergeable_context != (uint64_t*) 0)
+    if (pc == get_pc(current_mergeable_context))
       merge(context1, current_mergeable_context, pc);
 }
 
