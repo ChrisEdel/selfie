@@ -1246,9 +1246,9 @@ uint64_t* get_mergeable_context();
 void      add_waiting_context(uint64_t* context);
 uint64_t* get_waiting_context();
 
-void      add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t merge_location); // TODO
-uint64_t  get_potential_recursive_merge_location(uint64_t prologue_start); // TODO
-uint64_t  has_potential_recursive_merge_location(uint64_t prologue_start); // TODO
+void      add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t merge_location);
+uint64_t  get_potential_recursive_merge_location(uint64_t prologue_start);
+uint64_t  is_potential_recursive_merge_location(uint64_t prologue_start);
 
 void      merge(uint64_t* context1, uint64_t* context2, uint64_t location);
 void      merge_symbolic_store(uint64_t* context1, uint64_t* context2);
@@ -1271,14 +1271,14 @@ uint64_t* reg_sym = (uint64_t*) 0; // symbolic values in registers as strings in
 char*    smt_name = (char*) 0; // name of SMT-LIB file
 uint64_t smt_fd   = 0;         // file descriptor of open SMT-LIB file
 
-uint64_t* mergeable_contexts        = (uint64_t*) 0; // contexts that have reached their merge location
-uint64_t* waiting_contexts          = (uint64_t*) 0; // contexts that were created at a symbolic beq instruction and are waiting to be executed
-uint64_t* current_mergeable_context = (uint64_t*) 0; // last context that has reached its merge location
-uint64_t* potential_recursive_merge_locations = (uint64_t*) 0; // TODO
+uint64_t* mergeable_contexts                  = (uint64_t*) 0; // contexts that have reached their merge location
+uint64_t* waiting_contexts                    = (uint64_t*) 0; // contexts that were created at a symbolic beq instruction and are waiting to be executed
+uint64_t* current_mergeable_context           = (uint64_t*) 0; // last context that has reached its merge location
+uint64_t* potential_recursive_merge_locations = (uint64_t*) 0; // stack which stores merge locations of potential recursive functions
 
 // TODO
 uint64_t is_recursive = 0;
-uint64_t rec_merge_point = 0;
+uint64_t potential_recursive_merge_location = 0;
 uint64_t prologue_start = 0;
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
@@ -7600,10 +7600,11 @@ void copy_symbolic_memory(uint64_t* from_context, uint64_t* to_context) {
 
   sword = get_symbolic_memory(from_context);
   symbolic_memory_copy = (uint64_t*) 0;
-  while(sword) {
+  while (sword) {
     sword_copy = allocate_symbolic_memory_word();
     if(previous != (uint64_t*) 0)
       set_next_word(previous, sword_copy);
+
     set_word_address(sword_copy, get_word_address(sword));
     set_word_value(sword_copy, get_word_value(sword));
     set_word_symbolic(sword_copy, get_word_symbolic(sword));
@@ -7616,7 +7617,6 @@ void copy_symbolic_memory(uint64_t* from_context, uint64_t* to_context) {
     sword = get_next_word(sword);
   }
 
-
   set_next_word(sword_copy, 0);
   set_symbolic_memory(to_context, symbolic_memory_copy);
 }
@@ -7626,9 +7626,8 @@ void delete_symbolic_word(uint64_t vaddr) {
 
   sword = symbolic_memory;
 
-  while(sword) {
-
-    if(get_word_address(sword) == vaddr)
+  while (sword) {
+    if (get_word_address(sword) == vaddr)
       set_word_address(sword, -1);
 
     sword = get_next_word(sword);
@@ -7775,7 +7774,7 @@ uint64_t find_merge_location(uint64_t beq_imm) {
     decode();
 
     if (is == JAL)
-      if (has_potential_recursive_merge_location(pc + imm)) {
+      if (is_potential_recursive_merge_location(pc + imm)) {
         is_recursive = 1;
         merge_location = get_potential_recursive_merge_location(pc + imm) + 2 * INSTRUCTIONSIZE;
       }
@@ -7836,13 +7835,12 @@ uint64_t* get_waiting_context() {
   return (uint64_t*) *(head + 1);
 }
 
-// TODO
 void add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t merge_location) {
   uint64_t* entry;
 
   entry = potential_recursive_merge_locations;
-  while(entry) {
-    if(*(entry + 1) == prologue_start)
+  while (entry) {
+    if (*(entry + 1) == prologue_start)
       return;
 
     entry = (uint64_t*) *(entry + 0);
@@ -7858,31 +7856,31 @@ void add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t me
   potential_recursive_merge_locations = entry;
 }
 
-// TODO
 uint64_t get_potential_recursive_merge_location(uint64_t prologue_start) {
   uint64_t* entry;
 
   entry = potential_recursive_merge_locations;
-  while(entry) {
-    if(*(entry + 1) == prologue_start)
+  while (entry) {
+    if (*(entry + 1) == prologue_start)
       return (uint64_t) *(entry + 2);
 
     entry = (uint64_t*) *(entry + 0);
   }
+
   return -1;
 }
 
-// TODO
-uint64_t has_potential_recursive_merge_location(uint64_t prologue_start) {
+uint64_t is_potential_recursive_merge_location(uint64_t prologue_start) {
   uint64_t* entry;
 
   entry = potential_recursive_merge_locations;
-  while(entry) {
-    if(*(entry + 1) == prologue_start)
+  while (entry) {
+    if (*(entry + 1) == prologue_start)
       return 1;
 
     entry = (uint64_t*) *(entry + 0);
   }
+
   return 0;
 }
 
@@ -7891,9 +7889,9 @@ void merge(uint64_t* context1, uint64_t* context2, uint64_t location) {
   print_code_context_for_instruction(location);
   println();
 
-  // TODO
   if(potential_recursive_merge_locations != (uint64_t*) 0)
     if(get_pc(context1) == *(potential_recursive_merge_locations + 2))
+      // we have finished the recursion
       is_recursive = 0;
 
   // merging the symbolic store
@@ -8404,7 +8402,7 @@ void execute_debug() {
 
 void execute_symbolically() {
   uint64_t original_pc;
-  uint64_t temp;
+  uint64_t temp_pc;
   // assert: 1 <= is <= number of RISC-U instructions
   if (is == ADDI) {
     constrain_addi();
@@ -8434,38 +8432,39 @@ void execute_symbolically() {
     do_sltu();
   } else if (is == BEQ)
     constrain_beq();
-    // TODO
   else if (is == JAL) {
-    temp = pc;
+    temp_pc = pc;
     do_jal();
     original_pc = pc;
     fetch();
     decode();
-    if(is == ADDI) {
+
+    if (is == ADDI) {
       pc = pc + INSTRUCTIONSIZE;
       fetch();
       decode();
-      if(is == SD) {
+      if (is == SD) {
         pc = pc + INSTRUCTIONSIZE;
         fetch();
         decode();
-        if(is == ADDI) {
+        if (is == ADDI) {
           pc = pc + INSTRUCTIONSIZE;
           fetch();
           decode();
-          if(is == SD) {
+          if (is == SD) {
             pc = pc + INSTRUCTIONSIZE;
             fetch();
             decode();
-            if(is == ADDI) {
-              if(is_recursive == 0) {
-                rec_merge_point = temp + 2 * INSTRUCTIONSIZE;
-                prologue_start = original_pc;
-             } else {
-                rec_merge_point = *(potential_recursive_merge_locations + 2);
-                prologue_start = original_pc;
-             }
-             add_potential_recursive_merge_location(prologue_start, rec_merge_point);
+            if( is == ADDI) {
+              // this may be the prologue of a function
+              if (is_recursive == 0)
+                potential_recursive_merge_location = temp_pc + 2 * INSTRUCTIONSIZE;
+              else
+                // do not change the merge location since we only merge when the recursion is finished
+                potential_recursive_merge_location = *(potential_recursive_merge_locations + 2);
+                
+             prologue_start = original_pc;
+             add_potential_recursive_merge_location(prologue_start, potential_recursive_merge_location);
             }
           }
         }
