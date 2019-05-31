@@ -7777,7 +7777,7 @@ uint64_t find_merge_location(uint64_t beq_imm) {
     if (is == JAL)
       if (has_potential_recursive_merge_location(pc + imm)) {
         is_recursive = 1;
-        merge_location = get_potential_recursive_merge_location(pc + imm);
+        merge_location = get_potential_recursive_merge_location(pc + imm) + 2 * INSTRUCTIONSIZE;
       }
 
     pc = pc + INSTRUCTIONSIZE;
@@ -7918,14 +7918,14 @@ void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
 
   sword1 = symbolic_memory;
   while (sword1) {
-    if(get_word_address(sword1) != (uint64_t) -1) {
+    if (get_word_address(sword1) != (uint64_t) -1) {
       sword2 = get_symbolic_memory(context2);
 
-      while(sword2) {
-        if(get_word_address(sword1) == get_word_address(sword2)) {
-          if(get_word_symbolic(sword1) != (char*) 0) {
-            if(get_word_symbolic(sword2) != (char*) 0) {
-              if(get_word_symbolic(sword1) != get_word_symbolic(sword2)) {
+      while (sword2) {
+        if (get_word_address(sword1) == get_word_address(sword2)) {
+          if (get_word_symbolic(sword1) != (char*) 0) {
+            if (get_word_symbolic(sword2) != (char*) 0) {
+              if (get_word_symbolic(sword1) != get_word_symbolic(sword2)) {
                 // merge symbolic values if they are different
                 set_word_symbolic(sword1, 
                   smt_ternary("ite", 
@@ -7933,7 +7933,8 @@ void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
                     get_word_symbolic(sword1), 
                     get_word_symbolic(sword2))
                 );
-              set_word_address(sword2, -1);
+                // 'delete' the symbolic word since it does not need to be merged again
+                set_word_address(sword2, -1);
               }
             } else {
               // merge symbolic value and concrete value
