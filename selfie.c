@@ -1246,9 +1246,9 @@ uint64_t* get_mergeable_context();
 void      add_waiting_context(uint64_t* context);
 uint64_t* get_waiting_context();
 
-void      add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t merge_location);
-uint64_t  get_potential_recursive_merge_location(uint64_t prologue_start);
-uint64_t  has_potential_recursive_merge_location(uint64_t prologue_start);
+void      add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t merge_location); // TODO
+uint64_t  get_potential_recursive_merge_location(uint64_t prologue_start); // TODO
+uint64_t  has_potential_recursive_merge_location(uint64_t prologue_start); // TODO
 
 void      merge(uint64_t* context1, uint64_t* context2, uint64_t location);
 void      merge_symbolic_store(uint64_t* context1, uint64_t* context2);
@@ -1271,12 +1271,12 @@ uint64_t* reg_sym = (uint64_t*) 0; // symbolic values in registers as strings in
 char*    smt_name = (char*) 0; // name of SMT-LIB file
 uint64_t smt_fd   = 0;         // file descriptor of open SMT-LIB file
 
-uint64_t* mergeable_contexts        = (uint64_t*) 0; // contexts that are ready for a merge
-uint64_t* waiting_contexts          = (uint64_t*) 0; // contexts that are waiting to be executed after a beq
-uint64_t* current_mergeable_context = (uint64_t*) 0;
-uint64_t* potential_recursive_merge_locations = (uint64_t*) 0;
+uint64_t* mergeable_contexts        = (uint64_t*) 0; // contexts that have reached their merge location
+uint64_t* waiting_contexts          = (uint64_t*) 0; // contexts that were created at a symbolic beq instruction and are waiting to be executed
+uint64_t* current_mergeable_context = (uint64_t*) 0; // last context that has reached its merge location
+uint64_t* potential_recursive_merge_locations = (uint64_t*) 0; // TODO
 
-
+// TODO
 uint64_t is_recursive = 0;
 uint64_t rec_merge_point = 0;
 uint64_t prologue_start = 0;
@@ -1488,7 +1488,7 @@ uint64_t* delete_context(uint64_t* context, uint64_t* from);
 // | 18 | symbolic memory | pointer to symbolic memory
 // | 19 | symbolic regs   | pointer to symbolic registers
 // | 20 | beq counter     | number of executed symbolic beq instructions
-// | 21 | merge location  | program location at which the context can potentially be merged
+// | 21 | merge location  | program location at which the context can potentially be merged (later)
 // +----+-----------------+
 
 uint64_t* allocate_context() {
@@ -1496,7 +1496,7 @@ uint64_t* allocate_context() {
 }
 
 uint64_t* allocate_symbolic_context() {
-  return smalloc(7 * SIZEOFUINT64STAR + 9 * SIZEOFUINT64 + 4 * SIZEOFUINT64STAR + 3 * SIZEOFUINT64);
+  return smalloc(7 * SIZEOFUINT64STAR + 9 * SIZEOFUINT64 + 3 * SIZEOFUINT64STAR + 3 * SIZEOFUINT64);
 }
 
 uint64_t next_context(uint64_t* context)    { return (uint64_t) context; }
@@ -7262,22 +7262,25 @@ void constrain_beq() {
   print_code_context_for_instruction(pc);
   println();
 
+  // increase the number of executed symbolic beq instructions
   set_beq_counter(current_context, get_beq_counter(current_context) + 1);
 
-  if(get_beq_counter(current_context) < BEQ_LIMIT) {
+  if (get_beq_counter(current_context) < BEQ_LIMIT) {
+    // save symbolic memory so that it is copied correctly afterwards
     set_symbolic_memory(current_context, symbolic_memory);
 
     // we may be able to merge with this context later
     add_waiting_context(copy_context(current_context,
       pc + imm,
       smt_binary("and", pvar, bvar),
-      max_execution_depth - timer));
+      max_execution_depth - timer)
+    );
 
     path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
     set_merge_location(current_context, find_merge_location(imm));
   
     // check if a context is waiting for the merge
-    if(current_mergeable_context != (uint64_t*) 0) {
+    if (current_mergeable_context != (uint64_t*) 0) {
       // we cannot merge with this one, so we add it back to the stack
       // of mergeable contexts
       add_mergeable_context(current_mergeable_context);
@@ -7744,7 +7747,6 @@ uint64_t find_merge_location(uint64_t beq_imm) {
   // we need to know which instruction it is
   fetch();
   decode();
-
   
   if(is != JAL)
     // no jal instruction -> end of if without else branch
@@ -7757,6 +7759,7 @@ uint64_t find_merge_location(uint64_t beq_imm) {
       merge_location = pc + imm;
 
       pc = original_pc + INSTRUCTIONSIZE;
+
       while(pc != merge_location) {
         fetch();
         decode();
@@ -7768,6 +7771,7 @@ uint64_t find_merge_location(uint64_t beq_imm) {
         }
         pc = pc + INSTRUCTIONSIZE;
       }
+      
     }
     else
       // jal with negative imm -> end of loop body
@@ -9536,9 +9540,9 @@ char* replace_extension(char* filename, uint64_t e) {
 }
 
 uint64_t monster(uint64_t* to_context) {
-  uint64_t timeout;
+  uint64_t  timeout;
   uint64_t* from_context;
-  uint64_t exception;
+  uint64_t  exception;
 
   print("monster\n");
 
