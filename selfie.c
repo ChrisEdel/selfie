@@ -17,7 +17,7 @@ virtual machine monitors. The common theme is to identify and
 resolve self-reference in systems code which is seen as the key
 challenge when teaching systems engineering, hence the name.
 
-Selfie is a self-contained 64-bit, 12-KLOC C implementation of:
+Selfie is a self-contained 64-bit, 10-KLOC C implementation of:
 
 1. a self-compiling compiler called starc that compiles
    a tiny but still fast subset of C called C Star (C*) to
@@ -27,19 +27,17 @@ Selfie is a self-contained 64-bit, 12-KLOC C implementation of:
 3. a self-hosting hypervisor called hypster that provides
    RISC-U virtual machines that can host all of selfie,
    that is, starc, mipster, and hypster itself,
-4. a self-translating modeling engine called monster that
-   translates RISC-U code including itself to SMT-LIB and
-   BTOR2 formulae that are satisfiable if and only if
-   there is input to the code such that the code exits
-   with non-zero exit codes, performs division by zero,
-   or accesses memory outside of allocated memory blocks,
+4. a symbolic execution engine called monster that executes
+   RISC-U code symbolically and generates SMT-LIB files
+   that are satisfiable if and only if the code may exit
+   with non-zero exit codes,
 5. a simple SAT solver that reads CNF DIMACS files, and
 6. a tiny C* library called libcstar utilized by selfie.
 
 Selfie is implemented in a single (!) file and kept minimal for simplicity.
 There is also a simple in-memory linker, a RISC-U disassembler, a profiler,
 and a debugger with replay as well as minimal operating system support in
-the form of RISC-V system calls built into the emulator and hypervisor.
+the form of RISC-V system calls built into the emulator.
 
 C* is a tiny Turing-complete subset of C that includes dereferencing
 (the * operator) but excludes composite data types, bitwise and Boolean
@@ -74,8 +72,8 @@ selfie goes one step further by implementing microkernel functionality
 as part of the emulator and a hypervisor that can run as part of the
 emulator as well as on top of it, all with the same code.
 
-The modeling engine implements a simple yet sound and complete
-translation of RISC-U code to SMT-LIB and BTOR2 formulae. The SAT
+The symbolic execution engine implements a simple yet sound and
+complete translation of RISC-U code to SMT-LIB formulae. The SAT
 solver implements a naive brute-force enumeration of all possible
 variable assignments. Both engine and solver facilitate teaching
 the absolute basics of SAT and SMT solving applied to real code.
@@ -85,8 +83,9 @@ The design of the compiler is inspired by the Oberon compiler of
 Professor Niklaus Wirth from ETH Zurich. RISC-U is inspired by the
 RISC-V community around Professor David Patterson from UC Berkeley.
 The design of the hypervisor is inspired by microkernels of Professor
-Jochen Liedtke from University of Karlsruhe. The modeling engine and
-the SAT solver are inspired by Professor Armin Biere from JKU Linz.
+Jochen Liedtke from University of Karlsruhe. The symbolic execution
+engine and the SAT solver are inspired by Professor Armin Biere from
+JKU Linz.
 */
 
 // *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
@@ -121,8 +120,6 @@ void reset_library();
 uint64_t two_to_the_power_of(uint64_t p);
 uint64_t ten_to_the_power_of(uint64_t p);
 
-uint64_t log_ten(uint64_t n);
-
 uint64_t left_shift(uint64_t n, uint64_t b);
 uint64_t right_shift(uint64_t n, uint64_t b);
 
@@ -131,7 +128,6 @@ uint64_t get_low_word(uint64_t n);
 uint64_t get_high_word(uint64_t n);
 
 uint64_t absolute(uint64_t n);
-uint64_t max(uint64_t a, uint64_t b);
 
 uint64_t signed_less_than(uint64_t a, uint64_t b);
 uint64_t signed_division(uint64_t a, uint64_t b);
@@ -181,6 +177,7 @@ void printf6(char* s, char* a1, char* a2, char* a3, char* a4, char* a5, char* a6
 void sprintf1(char* b, char* s, char* a1);
 void sprintf2(char* b, char* s, char* a1, char* a2);
 void sprintf3(char* b, char* s, char* a1, char* a2, char* a3);
+void sprintf4(char* b, char* s, char* a1, char* a2, char* a3, char* a4);
 
 uint64_t round_up(uint64_t n, uint64_t m);
 
@@ -188,8 +185,6 @@ uint64_t* smalloc(uint64_t size);
 uint64_t* zalloc(uint64_t size);
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
-
-char* SELFIE_URL = (char*) 0;
 
 uint64_t CHAR_EOF          =  -1; // end of file
 uint64_t CHAR_BACKSPACE    =   8; // ASCII code 8  = backspace
@@ -276,8 +271,6 @@ uint64_t output_cursor = 0; // cursor for output buffer
 
 void init_library() {
   uint64_t i;
-
-  SELFIE_URL = "http://selfie.cs.uni-salzburg.at";
 
   // powers of two table with CPUBITWIDTH entries for 2^0 to 2^(CPUBITWIDTH - 1)
   power_of_two_table = smalloc(CPUBITWIDTH * SIZEOFUINT64);
@@ -752,7 +745,7 @@ void init_register() {
   *(REGISTERS + REG_T0)  = (uint64_t) "t0";
   *(REGISTERS + REG_T1)  = (uint64_t) "t1";
   *(REGISTERS + REG_T2)  = (uint64_t) "t2";
-  *(REGISTERS + REG_FP)  = (uint64_t) "s0"; // used to be fp
+  *(REGISTERS + REG_FP)  = (uint64_t) "s0";
   *(REGISTERS + REG_S1)  = (uint64_t) "s1";
   *(REGISTERS + REG_A0)  = (uint64_t) "a0";
   *(REGISTERS + REG_A1)  = (uint64_t) "a1";
@@ -928,8 +921,8 @@ void selfie_load();
 
 uint64_t MAX_BINARY_LENGTH = 262144; // 256KB = MAX_CODE_LENGTH + MAX_DATA_LENGTH
 
-uint64_t MAX_CODE_LENGTH = 229376; // 224KB
-uint64_t MAX_DATA_LENGTH = 32768; // 32KB
+uint64_t MAX_CODE_LENGTH = 245760; // 240KB
+uint64_t MAX_DATA_LENGTH = 16384; // 16KB
 
 // page-aligned ELF header for storing file header (64 bytes),
 // program header (56 bytes), and code length (8 bytes)
@@ -966,6 +959,9 @@ uint64_t entry_point = 0; // beginning of code segment in virtual address space
 
 uint64_t* code_line_number = (uint64_t*) 0; // code line number per emitted instruction
 uint64_t* data_line_number = (uint64_t*) 0; // data line number per emitted data
+
+char*    assembly_name = (char*) 0; // name of assembly file
+uint64_t assembly_fd   = 0;         // file descriptor of open assembly file
 
 uint64_t* ELF_header = (uint64_t*) 0;
 
@@ -1026,7 +1022,7 @@ uint64_t debug_switch = 0;
 
 // *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
 // -----------------------------------------------------------------
-// -----------------    A R C H I T E C T U R E    -----------------
+// ----------------------    R U N T I M E    ----------------------
 // -----------------------------------------------------------------
 // *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
 
@@ -1085,8 +1081,8 @@ void init_memory(uint64_t megabytes) {
 // ------------------------- INSTRUCTIONS --------------------------
 // -----------------------------------------------------------------
 
-void print_code_line_number_for_instruction(uint64_t address, uint64_t offset);
-void print_code_context_for_instruction(uint64_t address);
+void print_code_line_number_for_instruction(uint64_t a);
+void print_code_context_for_instruction(uint64_t a);
 
 void print_lui();
 void print_lui_before();
@@ -1195,6 +1191,8 @@ void init_replay_engine() {
 
 uint64_t* load_symbolic_memory(uint64_t vaddr);
 void      store_symbolic_memory(uint64_t vaddr, uint64_t val, char* sym, char* var, uint64_t bits);
+void      copy_symbolic_memory(uint64_t* from_context, uint64_t* to_context);
+void      delete_word_from_symbolic_memory(uint64_t vaddr);
 
 uint64_t is_symbolic_value(uint64_t* sword);
 
@@ -1238,6 +1236,23 @@ char* smt_variable(char* prefix, uint64_t bits);
 
 char* smt_unary(char* opt, char* op);
 char* smt_binary(char* opt, char* op1, char* op2);
+char* smt_ternary(char* opt, char* op1, char* op2, char* op3);
+
+uint64_t  find_merge_location(uint64_t beq_imm);
+
+void      add_mergeable_context(uint64_t* context);
+uint64_t* get_mergeable_context();
+
+void      add_waiting_context(uint64_t* context);
+uint64_t* get_waiting_context();
+
+void      add_prologue_start_and_corresponding_merge_location(uint64_t prologue_start, uint64_t merge_location);
+uint64_t  get_merge_location_from_corresponding_prologue_start(uint64_t prologue_start);
+uint64_t  is_start_of_procedure_prologue(uint64_t prologue_start);
+
+void      merge(uint64_t* active_context, uint64_t* mergeable_context, uint64_t location);
+void      merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context);
+uint64_t* merge_if_possible_and_get_next_context(uint64_t* context);
 
 // ------------------------ GLOBAL VARIABLES -----------------------
 
@@ -1256,13 +1271,25 @@ uint64_t* reg_sym = (uint64_t*) 0; // symbolic values in registers as strings in
 char*    smt_name = (char*) 0; // name of SMT-LIB file
 uint64_t smt_fd   = 0;         // file descriptor of open SMT-LIB file
 
+uint64_t* mergeable_contexts                          = (uint64_t*) 0; // contexts that have reached their merge location
+uint64_t* waiting_contexts                            = (uint64_t*) 0; // contexts that were created at a symbolic beq instruction and are waiting to be executed
+uint64_t* current_mergeable_context                   = (uint64_t*) 0; // current context with which the active context can possibly be merged
+uint64_t* prologues_and_corresponding_merge_locations = (uint64_t*) 0; // stack which stores possible function prologues and their corresponding merge locations
+
+uint64_t in_recursion = 0;
+uint64_t prologue_and_corresponding_merge_location = 0;
+uint64_t prologue_start = 0;
+
+// ------------------------ GLOBAL CONSTANTS -----------------------
+
+uint64_t BEQ_LIMIT = 100;  // limit of symbolic beq instructions on any given path
+
 // -----------------------------------------------------------------
 // -------------------------- INTERPRETER --------------------------
 // -----------------------------------------------------------------
 
 void init_interpreter();
 void reset_interpreter();
-void reset_profiler();
 
 void     print_register_hexadecimal(uint64_t reg);
 void     print_register_octal(uint64_t reg);
@@ -1290,6 +1317,10 @@ uint64_t print_per_instruction_counter(uint64_t total, uint64_t* counters, uint6
 void     print_per_instruction_profile(char* message, uint64_t total, uint64_t* counters);
 
 void print_profile();
+
+void translate_to_assembler();
+
+void selfie_disassemble(uint64_t verbose);
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
@@ -1319,6 +1350,7 @@ uint64_t EXCEPTION_TIMER              = 3;
 uint64_t EXCEPTION_INVALIDADDRESS     = 4;
 uint64_t EXCEPTION_DIVISIONBYZERO     = 5;
 uint64_t EXCEPTION_UNKNOWNINSTRUCTION = 6;
+uint64_t EXCEPTION_MERGE              = 7;
 
 uint64_t* EXCEPTIONS; // strings representing exceptions
 
@@ -1329,16 +1361,13 @@ uint64_t run = 0; // flag for running code
 // enables recording, symbolically executing, and debugging code
 uint64_t debug = 0;
 
-uint64_t debug_syscalls = 0; // flag for debugging syscalls
-
 uint64_t record   = 0; // flag for recording code execution
 uint64_t symbolic = 0; // flag for symbolically executing code
 
 uint64_t redo = 0; // flag for redoing code execution
 
+uint64_t disassemble         = 0; // flag for disassembling code
 uint64_t disassemble_verbose = 0; // flag for disassembling code in more detail
-uint64_t model_check         = 0; // flag for model checking code
-uint64_t check_block_access  = 0; // flag for checking memory access validity on malloced block level
 
 // number of instructions from context switch to timer interrupt
 // CAUTION: avoid interrupting any kernel activities, keep TIMESLICE large
@@ -1388,6 +1417,7 @@ void init_interpreter() {
   *(EXCEPTIONS + EXCEPTION_INVALIDADDRESS)     = (uint64_t) "invalid address";
   *(EXCEPTIONS + EXCEPTION_DIVISIONBYZERO)     = (uint64_t) "division by zero";
   *(EXCEPTIONS + EXCEPTION_UNKNOWNINSTRUCTION) = (uint64_t) "unknown instruction";
+  *(EXCEPTIONS + EXCEPTION_MERGE)              = (uint64_t) "merge interrupt";
 }
 
 void reset_interpreter() {
@@ -1402,26 +1432,20 @@ void reset_interpreter() {
   trap = 0;
 
   timer = TIMEROFF;
+
+  if (run) {
+    reset_instruction_counters();
+
+    calls               = 0;
+    calls_per_procedure = zalloc(MAX_CODE_LENGTH / INSTRUCTIONSIZE * SIZEOFUINT64);
+
+    iterations          = 0;
+    iterations_per_loop = zalloc(MAX_CODE_LENGTH / INSTRUCTIONSIZE * SIZEOFUINT64);
+
+    loads_per_instruction  = zalloc(MAX_CODE_LENGTH / INSTRUCTIONSIZE * SIZEOFUINT64);
+    stores_per_instruction = zalloc(MAX_CODE_LENGTH / INSTRUCTIONSIZE * SIZEOFUINT64);
+  }
 }
-
-void reset_profiler() {
-  reset_instruction_counters();
-
-  calls               = 0;
-  calls_per_procedure = zalloc(code_length / INSTRUCTIONSIZE * SIZEOFUINT64);
-
-  iterations          = 0;
-  iterations_per_loop = zalloc(code_length / INSTRUCTIONSIZE * SIZEOFUINT64);
-
-  loads_per_instruction  = zalloc(code_length / INSTRUCTIONSIZE * SIZEOFUINT64);
-  stores_per_instruction = zalloc(code_length / INSTRUCTIONSIZE * SIZEOFUINT64);
-}
-
-// *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
-// -----------------------------------------------------------------
-// ----------------------    R U N T I M E    ----------------------
-// -----------------------------------------------------------------
-// *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
 
 // -----------------------------------------------------------------
 // ---------------------------- CONTEXTS ---------------------------
@@ -1429,8 +1453,8 @@ void reset_profiler() {
 
 uint64_t* new_context();
 
-void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt);
-void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth);
+void      init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt);
+uint64_t* copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth);
 
 uint64_t* find_context(uint64_t* parent, uint64_t* vctxt);
 
@@ -1462,7 +1486,8 @@ uint64_t* delete_context(uint64_t* context, uint64_t* from);
 // | 17 | path condition  | pointer to path condition
 // | 18 | symbolic memory | pointer to symbolic memory
 // | 19 | symbolic regs   | pointer to symbolic registers
-// | 20 | related context | pointer to list of contexts of related branches
+// | 20 | beq counter     | number of executed symbolic beq instructions
+// | 21 | merge location  | program location at which the context can possibly be merged (later)
 // +----+-----------------+
 
 uint64_t* allocate_context() {
@@ -1470,7 +1495,7 @@ uint64_t* allocate_context() {
 }
 
 uint64_t* allocate_symbolic_context() {
-  return smalloc(7 * SIZEOFUINT64STAR + 9 * SIZEOFUINT64 + 4 * SIZEOFUINT64STAR + 1 * SIZEOFUINT64);
+  return smalloc(7 * SIZEOFUINT64STAR + 9 * SIZEOFUINT64 + 3 * SIZEOFUINT64STAR + 3 * SIZEOFUINT64);
 }
 
 uint64_t next_context(uint64_t* context)    { return (uint64_t) context; }
@@ -1511,7 +1536,8 @@ uint64_t  get_execution_depth(uint64_t* context) { return             *(context 
 char*     get_path_condition(uint64_t* context)  { return (char*)     *(context + 17); }
 uint64_t* get_symbolic_memory(uint64_t* context) { return (uint64_t*) *(context + 18); }
 uint64_t* get_symbolic_regs(uint64_t* context)   { return (uint64_t*) *(context + 19); }
-uint64_t* get_related_context(uint64_t* context) { return (uint64_t*) *(context + 20); }
+uint64_t  get_beq_counter(uint64_t* context)     { return             *(context + 20); }
+uint64_t  get_merge_location(uint64_t* context)  { return             *(context + 21); }
 
 void set_next_context(uint64_t* context, uint64_t* next)      { *context        = (uint64_t) next; }
 void set_prev_context(uint64_t* context, uint64_t* prev)      { *(context + 1)  = (uint64_t) prev; }
@@ -1534,7 +1560,8 @@ void set_execution_depth(uint64_t* context, uint64_t depth)    { *(context + 16)
 void set_path_condition(uint64_t* context, char* path)         { *(context + 17) = (uint64_t) path; }
 void set_symbolic_memory(uint64_t* context, uint64_t* memory)  { *(context + 18) = (uint64_t) memory; }
 void set_symbolic_regs(uint64_t* context, uint64_t* regs)      { *(context + 19) = (uint64_t) regs; }
-void set_related_context(uint64_t* context, uint64_t* related) { *(context + 20) = (uint64_t) related; }
+void set_beq_counter(uint64_t* context, uint64_t counter)      { *(context + 20) =            counter; }
+void set_merge_location(uint64_t* context, uint64_t location)  { *(context + 21) =            location; }
 
 // -----------------------------------------------------------------
 // -------------------------- MICROKERNEL --------------------------
@@ -1592,6 +1619,7 @@ uint64_t handle_system_call(uint64_t* context);
 uint64_t handle_page_fault(uint64_t* context);
 uint64_t handle_division_by_zero(uint64_t* context);
 uint64_t handle_timer(uint64_t* context);
+uint64_t handle_merge(uint64_t* context);
 
 uint64_t handle_exception(uint64_t* context);
 
@@ -1605,7 +1633,7 @@ void     map_unmapped_pages(uint64_t* context);
 uint64_t minster(uint64_t* to_context);
 uint64_t mobster(uint64_t* to_context);
 
-char*    replace_extension(char* filename, char* extension);
+char*    replace_extension(char* filename, uint64_t e);
 uint64_t monster(uint64_t* to_context);
 
 uint64_t is_boot_level_zero();
@@ -1619,6 +1647,7 @@ uint64_t* MY_CONTEXT = (uint64_t*) 0;
 
 uint64_t DONOTEXIT = 0;
 uint64_t EXIT      = 1;
+uint64_t MERGE     = 2;
 
 uint64_t EXITCODE_NOERROR                = 0;
 uint64_t EXITCODE_BADARGUMENTS           = 1;
@@ -1633,8 +1662,7 @@ uint64_t EXITCODE_UNKNOWNINSTRUCTION     = 9;
 uint64_t EXITCODE_UNKNOWNSYSCALL         = 10;
 uint64_t EXITCODE_MULTIPLEEXCEPTIONERROR = 11;
 uint64_t EXITCODE_SYMBOLICEXECUTIONERROR = 12;
-uint64_t EXITCODE_MODELCHECKINGERROR     = 13;
-uint64_t EXITCODE_UNCAUGHTEXCEPTION      = 14;
+uint64_t EXITCODE_UNCAUGHTEXCEPTION      = 13;
 
 uint64_t SYSCALL_BITWIDTH = 32; // integer bit width for system calls
 
@@ -1658,133 +1686,9 @@ uint64_t free_page_frame_memory      = 0;
 
 // *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
 // -----------------------------------------------------------------
-// -------------------   C O R R E C T N E S S    ------------------
+// ----------------   T H E O R E M  P R O V E R    ----------------
 // -----------------------------------------------------------------
 // *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
-
-// -----------------------------------------------------------------
-// -------------------------- DISASSEMBLER -------------------------
-// -----------------------------------------------------------------
-
-void translate_to_assembler();
-
-void selfie_disassemble(uint64_t verbose);
-
-// ------------------------ GLOBAL VARIABLES -----------------------
-
-char*    assembly_name = (char*) 0; // name of assembly file
-uint64_t assembly_fd   = 0;         // file descriptor of open assembly file
-
-// -----------------------------------------------------------------
-// ------------------------ MODEL GENERATOR ------------------------
-// -----------------------------------------------------------------
-
-uint64_t pc_nid(uint64_t nid, uint64_t pc);
-uint64_t is_procedure_call(uint64_t instruction, uint64_t link);
-uint64_t validate_procedure_body(uint64_t from_instruction, uint64_t from_link, uint64_t to_address);
-
-void go_to_instruction(uint64_t from_instruction, uint64_t from_link, uint64_t from_address, uint64_t to_address, uint64_t condition_nid);
-
-void reset_bounds();
-
-void model_lui();
-
-void transfer_bounds();
-
-void model_addi();
-void model_add();
-void model_sub();
-void model_mul();
-void model_divu();
-void model_remu();
-void model_sltu();
-
-uint64_t record_start_bounds(uint64_t offset, uint64_t activation_nid, uint64_t reg);
-uint64_t record_end_bounds(uint64_t offset, uint64_t activation_nid, uint64_t reg);
-uint64_t compute_address();
-
-void model_ld();
-void model_sd();
-
-void model_beq();
-void model_jal();
-void model_jalr();
-void model_ecall();
-
-void translate_to_model();
-
-void model_syscalls();
-
-uint64_t control_flow(uint64_t activate_nid, uint64_t control_flow_nid);
-
-void check_division_by_zero(uint64_t division, uint64_t flow_nid);
-
-void check_address_validity(uint64_t start, uint64_t flow_nid, uint64_t lo_flow_nid, uint64_t up_flow_nid);
-
-uint64_t selfie_model_generate();
-
-// ------------------------ GLOBAL CONSTANTS -----------------------
-
-uint64_t LO_FLOW = 32; // offset of nids of lower bounds on addresses in registers
-uint64_t UP_FLOW = 64; // offset of nids of upper bounds on addresses in registers
-
-// ------------------------ GLOBAL VARIABLES -----------------------
-
-char*    model_name = (char*) 0; // name of model file
-uint64_t model_fd   = 0;         // file descriptor of open model file
-
-uint64_t bad_exit_code = 0; // model check for this exit code
-
-uint64_t current_nid = 0; // nid of current line
-
-uint64_t  reg_nids      = 0;             // nids of registers
-uint64_t* reg_flow_nids = (uint64_t*) 0; // nids of most recent update of registers
-
-uint64_t reg_a7 = 0; // most recent update of $a7 register in sequential translation flow
-
-uint64_t pcs_nid = 0; // nid of first program counter flag
-
-// per-instruction list of control-flow in-edges
-uint64_t* control_in = (uint64_t*) 0;
-
-// per-procedure (target of procedure call jal) address of matching jalr instruction
-uint64_t* call_return = (uint64_t*) 0;
-
-uint64_t current_callee = 0; // address of first instruction of current callee
-
-// address of currently farthest forward branch or jump to find matching jalr instruction
-uint64_t estimated_return = 0;
-
-uint64_t memory_nid      = 0; // nid of memory
-uint64_t memory_flow_nid = 0; // nid of most recent update of memory
-
-uint64_t lo_memory_nid      = 0; // nid of lower bounds on addresses in memory
-uint64_t lo_memory_flow_nid = 0; // nid of most recent update of lower bounds on addresses in memory
-
-uint64_t up_memory_nid      = 0; // nid of upper bounds on addresses in memory
-uint64_t up_memory_flow_nid = 0; // nid of most recent update of upper bounds on addresses in memory
-
-// for checking division and remainder by zero
-// 21 is nid of 1 which is ok as divisor
-uint64_t division_flow_nid  = 21;
-uint64_t remainder_flow_nid = 21;
-
-// for checking address validity during state transitions with no memory access:
-// 30 is nid of end of code segment which must be a valid address (thus also checked)
-uint64_t access_flow_start_nid = 30;
-
-// 50 is nid of 4GB of memory addresses
-uint64_t lo_flow_start_nid = 30; // nid of most recent update of current lower bound
-uint64_t up_flow_start_nid = 50; // nid of most recent update of current upper bound
-
-// for checking address validity for a whole range of addresses
-uint64_t access_flow_end_nid = 30;
-
-uint64_t lo_flow_end_nid = 30; // nid of most recent update of current lower bound
-uint64_t up_flow_end_nid = 50; // nid of most recent update of current upper bound
-
-// keep track of pc flags of ecalls, 10 is nid of 1-bit 0
-uint64_t ecall_flow_nid = 10;
 
 // -----------------------------------------------------------------
 // -------------------------- SAT Solver ---------------------------
@@ -1843,8 +1747,7 @@ void init_selfie(uint64_t argc, uint64_t* argv);
 uint64_t  number_of_remaining_arguments();
 uint64_t* remaining_arguments();
 
-char* peek_argument(uint64_t lookahead);
-
+char* peek_argument();
 char* get_argument();
 void  set_argument(char* argv);
 
@@ -1890,15 +1793,6 @@ uint64_t ten_to_the_power_of(uint64_t p) {
     return ten_to_the_power_of(p - 1) * 10;
 }
 
-uint64_t log_ten(uint64_t n) {
-  // use recursion for simplicity and educational value
-  // for n < 1000000 performance is not relevant
-  if (n < 10)
-    return 0;
-  else
-    return log_ten(n / 10) + 1;
-}
-
 uint64_t left_shift(uint64_t n, uint64_t b) {
   // assert: 0 <= b < CPUBITWIDTH
   return n * two_to_the_power_of(b);
@@ -1933,13 +1827,6 @@ uint64_t absolute(uint64_t n) {
     return -n;
   else
     return n;
-}
-
-uint64_t max(uint64_t a, uint64_t b) {
-  if (a > b)
-    return a;
-  else
-    return b;
 }
 
 uint64_t signed_less_than(uint64_t a, uint64_t b) {
@@ -2547,6 +2434,16 @@ void sprintf3(char* b, char* s, char* a1, char* a2, char* a3) {
   output_cursor = 0;
 
   printf3(s, a1, a2, a3);put_character(0);
+
+  output_buffer = (char*) 0;
+  output_cursor = 0;
+}
+
+void sprintf4(char* b, char* s, char* a1, char* a2, char* a3, char* a4) {
+  output_buffer = b;
+  output_cursor = 0;
+
+  printf4(s, a1, a2, a3, a4);put_character(0);
 
   output_buffer = (char*) 0;
   output_cursor = 0;
@@ -5071,7 +4968,7 @@ void selfie_compile() {
   while (link) {
     if (number_of_remaining_arguments() == 0)
       link = 0;
-    else if (load_character(peek_argument(0), 0) == '-')
+    else if (load_character(peek_argument(), 0) == '-')
       link = 0;
     else {
       source_name = get_argument();
@@ -5519,19 +5416,15 @@ void print_instruction_counters() {
   print_instruction_counter(ic, ic_remu, "remu");
   println();
 
-  printf1("%s: compare: ", selfie_name);
-  print_instruction_counter(ic, ic_sltu, "sltu");
-  println();
-
   printf1("%s: control: ", selfie_name);
+  print_instruction_counter(ic, ic_sltu, "sltu");
+  print(", ");
   print_instruction_counter(ic, ic_beq, "beq");
   print(", ");
   print_instruction_counter(ic, ic_jal, "jal");
   print(", ");
   print_instruction_counter(ic, ic_jalr, "jalr");
-  println();
-
-  printf1("%s: system:  ", selfie_name);
+  print(", ");
   print_instruction_counter(ic, ic_ecall, "ecall");
   println();
 }
@@ -5569,7 +5462,7 @@ uint64_t load_data(uint64_t baddr) {
 }
 
 void store_data(uint64_t baddr, uint64_t data) {
-  if (baddr - code_length >= MAX_DATA_LENGTH) {
+  if (baddr >= MAX_CODE_LENGTH + MAX_DATA_LENGTH) {
     syntax_error_message("maximum data length exceeded");
 
     exit(EXITCODE_COMPILERERROR);
@@ -6044,7 +5937,7 @@ void implement_exit(uint64_t* context) {
   // parameter;
   uint64_t signed_int_exit_code;
 
-  if (debug_syscalls) {
+  if (disassemble) {
     print("(exit): ");
     print_register_hexadecimal(REG_A0);
     print(" |- ->\n");
@@ -6106,7 +5999,7 @@ void implement_read(uint64_t* context) {
   uint64_t* buffer;
   uint64_t actually_read;
 
-  if (debug_syscalls) {
+  if (disassemble) {
     print("(read): ");
     print_register_value(REG_A0);
     print(",");
@@ -6201,7 +6094,7 @@ void implement_read(uint64_t* context) {
       (char*) read_total,
       (char*) fd);
 
-  if (debug_syscalls) {
+  if (disassemble) {
     print(" -> ");
     print_register_value(REG_A0);
     println();
@@ -6240,7 +6133,7 @@ void implement_write(uint64_t* context) {
   uint64_t* buffer;
   uint64_t actually_written;
 
-  if (debug_syscalls) {
+  if (disassemble) {
     print("(write): ");
     print_register_value(REG_A0);
     print(",");
@@ -6327,7 +6220,7 @@ void implement_write(uint64_t* context) {
       (char*) written_total,
       (char*) fd);
 
-  if (debug_syscalls) {
+  if (disassemble) {
     print(" -> ");
     print_register_value(REG_A0);
     println();
@@ -6428,7 +6321,7 @@ void implement_openat(uint64_t* context) {
   // return value
   uint64_t fd;
 
-  if (debug_syscalls) {
+  if (disassemble) {
     print("(openat): ");
     print_register_hexadecimal(REG_A0);
     print(",");
@@ -6476,7 +6369,7 @@ void implement_openat(uint64_t* context) {
 
   set_pc(context, get_pc(context) + INSTRUCTIONSIZE);
 
-  if (debug_syscalls) {
+  if (disassemble) {
     print(" -> ");
     print_register_value(REG_A0);
     println();
@@ -6517,9 +6410,6 @@ void emit_malloc() {
   // allocate register to compute new bump pointer
   talloc();
 
-  // assert: current temporary is $t1 register to enable propagation of
-  // lower and upper bounds on addresses in model generation of brk syscall
-
   // get current _bump which will be returned upon success
   emit_ld(current_temporary(), get_scope(entry), get_address(entry));
 
@@ -6544,7 +6434,7 @@ void emit_malloc() {
 
   tfree(2);
 
-  emit_jalr(REG_ZR, REG_RA, 0);
+  emit_jalr(REG_ZR, REG_RA,0);
 }
 
 void implement_brk(uint64_t* context) {
@@ -6555,7 +6445,7 @@ void implement_brk(uint64_t* context) {
   uint64_t previous_program_break;
   uint64_t valid;
 
-  if (debug_syscalls) {
+  if (disassemble) {
     print("(brk): ");
     print_register_hexadecimal(REG_A0);
   }
@@ -6572,7 +6462,7 @@ void implement_brk(uint64_t* context) {
         valid = 1;
 
   if (valid) {
-    if (debug_syscalls)
+    if (disassemble)
       print(" |- ->\n");
 
     if (debug_brk)
@@ -6586,14 +6476,14 @@ void implement_brk(uint64_t* context) {
     if (debug_brk)
       printf2("%s: retrieving current program break %p\n", selfie_name, (char*) program_break);
 
-    if (debug_syscalls) {
+    if (disassemble) {
       print(" |- ");
       print_register_hexadecimal(REG_A0);
     }
 
     *(get_regs(context) + REG_A0) = program_break;
 
-    if (debug_syscalls) {
+    if (disassemble) {
       print(" -> ");
       print_register_hexadecimal(REG_A0);
       println();
@@ -6602,6 +6492,7 @@ void implement_brk(uint64_t* context) {
 
   set_pc(context, get_pc(context) + INSTRUCTIONSIZE);
 }
+
 
 // -----------------------------------------------------------------
 // ----------------------- HYPSTER SYSCALLS ------------------------
@@ -6666,7 +6557,7 @@ void implement_switch() {
   uint64_t* to_context;
   uint64_t timeout;
 
-  if (debug_syscalls) {
+  if (disassemble) {
     print("(switch): ");
     print_register_hexadecimal(REG_A0);
     print(",");
@@ -6685,7 +6576,7 @@ void implement_switch() {
 
   current_context = do_switch(current_context, to_context, timeout);
 
-  if (debug_syscalls) {
+  if (disassemble) {
     print(" -> ");
     print_register_hexadecimal(REG_A6);
     println();
@@ -6709,7 +6600,7 @@ uint64_t* hypster_switch(uint64_t* to_context, uint64_t timeout) {
 
 // *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
 // -----------------------------------------------------------------
-// -----------------    A R C H I T E C T U R E    -----------------
+// ----------------------    R U N T I M E    ----------------------
 // -----------------------------------------------------------------
 // *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
 
@@ -6802,30 +6693,23 @@ void store_virtual_memory(uint64_t* table, uint64_t vaddr, uint64_t data) {
 // ------------------------- INSTRUCTIONS --------------------------
 // -----------------------------------------------------------------
 
-void print_code_line_number_for_instruction(uint64_t address, uint64_t offset) {
+void print_code_line_number_for_instruction(uint64_t a) {
   if (code_line_number != (uint64_t*) 0)
-    printf1("(~%d)", (char*) *(code_line_number + (address - offset) / INSTRUCTIONSIZE));
+    printf1("(~%d)", (char*) *(code_line_number + a / INSTRUCTIONSIZE));
 }
 
-void print_code_context_for_instruction(uint64_t address) {
+void print_code_context_for_instruction(uint64_t a) {
   if (run) {
-    printf2("%s: pc=%x", binary_name, (char*) address);
-    print_code_line_number_for_instruction(address, entry_point);
+    printf2("%s: pc=%x", binary_name, (char*) a);
+    print_code_line_number_for_instruction(a - entry_point);
+    print(": ");
     if (symbolic)
       // skip further output
       return;
-    else
-      print(": ");
-  } else {
-    if (model_check) {
-      printf1("%x", (char*) address);
-      print_code_line_number_for_instruction(address, entry_point);
-      print(": ");
-    } else if (disassemble_verbose) {
-      printf1("%x", (char*) address);
-      print_code_line_number_for_instruction(address, 0);
-      printf1(": %p: ", (char*) ir);
-    }
+  } else if (disassemble_verbose) {
+    printf1("%x", (char*) a);
+    print_code_line_number_for_instruction(a);
+    printf1(": %p: ", (char*) ir);
   }
 }
 
@@ -7129,7 +7013,7 @@ void constrain_ld() {
   if (*(reg_sym + rs1)) {
     // symbolic memory addresses not yet supported
     printf2("%s: symbolic memory address in ld instruction at %x", selfie_name, (char*) pc);
-    print_code_line_number_for_instruction(pc, entry_point);
+    print_code_line_number_for_instruction(pc - entry_point);
     println();
 
     exit(EXITCODE_SYMBOLICEXECUTIONERROR);
@@ -7171,7 +7055,7 @@ void constrain_ld() {
     printf3("%s: invalid concrete memory address %x in ld instruction at %x", selfie_name,
       (char*) vaddr,
       (char*) pc);
-    print_code_line_number_for_instruction(pc, entry_point);
+    print_code_line_number_for_instruction(pc - entry_point);
     println();
 
     exit(EXITCODE_SYMBOLICEXECUTIONERROR);
@@ -7272,7 +7156,7 @@ void constrain_sd() {
   if (*(reg_sym + rs1)) {
     // symbolic memory addresses not yet supported
     printf2("%s: symbolic memory address in sd instruction at %x", selfie_name, (char*) pc);
-    print_code_line_number_for_instruction(pc, entry_point);
+    print_code_line_number_for_instruction(pc - entry_point);
     println();
 
     exit(EXITCODE_SYMBOLICEXECUTIONERROR);
@@ -7303,7 +7187,7 @@ void constrain_sd() {
     printf3("%s: invalid concrete memory address %x in sd instruction at %x", selfie_name,
       (char*) vaddr,
       (char*) pc);
-    print_code_line_number_for_instruction(pc, entry_point);
+    print_code_line_number_for_instruction(pc - entry_point);
     println();
 
     exit(EXITCODE_SYMBOLICEXECUTIONERROR);
@@ -7313,6 +7197,7 @@ void constrain_sd() {
 void print_beq() {
   print_code_context_for_instruction(pc);
   printf3("beq %s,%s,%d", get_register_name(rs1), get_register_name(rs2), (char*) signed_division(imm, INSTRUCTIONSIZE));
+
   if (disassemble_verbose)
     printf1("[%x]", (char*) (pc + imm));
 }
@@ -7376,19 +7261,41 @@ void constrain_beq() {
   print_code_context_for_instruction(pc);
   println();
 
-  copy_context(current_context,
-    pc + INSTRUCTIONSIZE,
-    smt_binary("and", pvar, smt_unary("not", bvar)),
-    max_execution_depth - timer);
+  // increase the number of executed symbolic beq instructions
+  set_beq_counter(current_context, get_beq_counter(current_context) + 1);
 
-  path_condition = smt_binary("and", pvar, bvar);
+  if (get_beq_counter(current_context) < BEQ_LIMIT) {
+    // save symbolic memory so that it is copied correctly afterwards
+    set_symbolic_memory(current_context, symbolic_memory);
 
-  pc = pc + imm;
+    // the copied context is executed later and takes the other path
+    add_waiting_context(copy_context(current_context, pc + imm, smt_binary("and", pvar, bvar), max_execution_depth - timer));
+
+    path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
+    set_merge_location(current_context, find_merge_location(imm));
+  
+    // check if a context is waiting to be merged
+    if (current_mergeable_context != (uint64_t*) 0) {
+      // we cannot merge with this one (yet), so we add it back to the stack
+      // of mergeable contexts
+      add_mergeable_context(current_mergeable_context);
+      current_mergeable_context = (uint64_t*) 0;
+    }
+
+    pc = pc + INSTRUCTIONSIZE;
+  } else {
+    // if the limit of symbolic beq instructions is reached, the path still continues until 
+    // maximal execution depth, but only by following the true case of the next encountered symbolic beq instructions
+    path_condition = smt_binary("and", pvar, bvar);
+  
+    pc = pc + imm;
+  }
 }
 
 void print_jal() {
   print_code_context_for_instruction(pc);
   printf2("jal %s,%d", get_register_name(rd), (char*) signed_division(imm, INSTRUCTIONSIZE));
+
   if (disassemble_verbose)
     printf1("[%x]", (char*) (pc + imm));
 }
@@ -7493,7 +7400,7 @@ void constrain_jalr() {
   if (*(reg_sym + rs1)) {
     // symbolic memory addresses not yet supported
     printf2("%s: symbolic memory address in jalr instruction at %x", selfie_name, (char*) pc);
-    print_code_line_number_for_instruction(pc, entry_point);
+    print_code_line_number_for_instruction(pc - entry_point);
     println();
 
     exit(EXITCODE_SYMBOLICEXECUTIONERROR);
@@ -7569,6 +7476,7 @@ void print_data_context(uint64_t data) {
 void print_data(uint64_t data) {
   if (disassemble_verbose)
     print_data_context(data);
+
   printf1(".quad %x", (char*) data);
 }
 
@@ -7611,7 +7519,7 @@ void replay_trace() {
 
   redo = 1;
 
-  debug_syscalls = 1;
+  disassemble = 1;
 
   tl = trace_length;
 
@@ -7627,7 +7535,7 @@ void replay_trace() {
     tl = tl - 1;
   }
 
-  debug_syscalls = 0;
+  disassemble = 0;
 
   redo   = 0;
   record = 1;
@@ -7657,6 +7565,9 @@ void store_symbolic_memory(uint64_t vaddr, uint64_t val, char* sym, char* var, u
 
   sword = allocate_symbolic_memory_word();
 
+  // we 'delete' the word, if it already exists in the symbolic memory
+  delete_word_from_symbolic_memory(vaddr);
+
   set_next_word(sword, symbolic_memory);
   set_word_address(sword, vaddr);
   set_word_value(sword, val);
@@ -7675,6 +7586,51 @@ void store_symbolic_memory(uint64_t vaddr, uint64_t val, char* sym, char* var, u
   set_number_of_bits(sword, bits);
 
   symbolic_memory = sword;
+}
+
+void copy_symbolic_memory(uint64_t* from_context, uint64_t* to_context) {
+  uint64_t* sword;
+  uint64_t* sword_copy;
+  uint64_t* symbolic_memory_copy;
+  uint64_t* previous;
+
+  sword = get_symbolic_memory(from_context);
+  symbolic_memory_copy = (uint64_t*) 0;
+
+  while (sword) {
+    sword_copy = allocate_symbolic_memory_word();
+
+    set_word_address(sword_copy, get_word_address(sword));
+    set_word_value(sword_copy, get_word_value(sword));
+    set_word_symbolic(sword_copy, get_word_symbolic(sword));
+    set_number_of_bits(sword_copy, get_number_of_bits(sword));
+
+    if (previous != (uint64_t*) 0)
+      set_next_word(previous, sword_copy);
+
+    if (symbolic_memory_copy == (uint64_t*) 0)
+      symbolic_memory_copy = sword_copy;
+
+    previous = sword_copy;
+    sword = get_next_word(sword);
+  }
+
+  set_next_word(sword_copy, 0);
+  set_symbolic_memory(to_context, symbolic_memory_copy);
+}
+
+void delete_word_from_symbolic_memory(uint64_t vaddr) {
+  uint64_t* sword;
+
+  sword = symbolic_memory;
+
+  while (sword) {
+    if (get_word_address(sword) == vaddr)
+      // note: we do not really delete the word, we just set the virtual address to -1
+      set_word_address(sword, -1);
+
+    sword = get_next_word(sword);
+  }
 }
 
 uint64_t is_symbolic_value(uint64_t* sword) {
@@ -7763,6 +7719,391 @@ char* smt_binary(char* opt, char* op1, char* op2) {
   sprintf3(string, "(%s %s %s)", opt, op1, op2);
 
   return string;
+}
+
+char* smt_ternary(char* opt, char* op1, char* op2, char* op3) {
+  char* string;
+
+  string = string_alloc(1 + string_length(opt) + 1 + string_length(op1) + 1 + string_length(op2) + 1 + string_length(op3) + 1);
+
+  sprintf4(string, "(%s %s %s %s)", opt, op1, op2, op3);
+
+  return string;
+}
+
+uint64_t find_merge_location(uint64_t beq_imm) {
+  uint64_t original_pc;
+  uint64_t original_imm;
+  uint64_t merge_location;
+
+  // assert: the current instruction is a symbolic beq instruction
+  original_pc = pc;
+  original_imm = imm;
+
+  // examine last instruction before target location of the beq instruction
+  pc = pc + (beq_imm - INSTRUCTIONSIZE);
+
+  // we need to know which instruction it is
+  fetch();
+  decode();
+  
+  if (is != JAL)
+    // no jal instruction -> end of if without else branch
+    // merge is directly at target location of the beq instruction possible
+    merge_location = original_pc + beq_imm;
+  else {
+    if (signed_less_than(imm, 0) == 0) { 
+      // jal with positive imm -> end of if with else branch
+      // we have to skip the else branch in order to merge afterwards
+      merge_location = pc + imm;
+
+      pc = original_pc + INSTRUCTIONSIZE;
+    }
+    else
+      // jal with negative imm -> end of loop body
+      // merge is only outside of the loop possible
+      merge_location = pc + INSTRUCTIONSIZE;
+  }
+
+  // we need to check if we are inside of a recursion before we reach the merge location
+  // if we are, we merge only when the recursion is finished
+  while (pc != merge_location) {
+    fetch();
+    decode();
+
+    if (is == JAL)
+      if (is_start_of_procedure_prologue(pc + imm)) {
+        in_recursion = 1;
+        merge_location = get_merge_location_from_corresponding_prologue_start(pc + imm) + 2 * INSTRUCTIONSIZE;
+      }
+
+    pc = pc + INSTRUCTIONSIZE;
+  }
+
+  // restore the original program state
+  pc = original_pc;
+  imm = original_imm;
+
+  return merge_location;
+}
+
+void add_mergeable_context(uint64_t* context) {
+  uint64_t* entry;
+
+  entry = smalloc(2 * SIZEOFUINT64STAR);
+
+  *(entry + 0) = (uint64_t) mergeable_contexts;
+  *(entry + 1) = (uint64_t) context;
+
+  mergeable_contexts = entry;
+}
+
+uint64_t* get_mergeable_context() {
+  uint64_t* head;
+
+  if (mergeable_contexts == (uint64_t*) 0)
+    return (uint64_t*) 0;
+
+  head = mergeable_contexts;
+  mergeable_contexts = (uint64_t*) *(head + 0);
+
+  return (uint64_t*) *(head + 1);
+}
+
+void add_waiting_context(uint64_t* context) {
+  uint64_t* entry;
+
+  entry = smalloc(2 * SIZEOFUINT64STAR);
+
+  *(entry + 0) = (uint64_t) waiting_contexts;
+  *(entry + 1) = (uint64_t) context;
+
+  waiting_contexts = entry;
+}
+
+uint64_t* get_waiting_context() {
+  uint64_t* head;
+
+  if (waiting_contexts == (uint64_t*) 0)
+    return (uint64_t*) 0;
+
+  head = waiting_contexts;
+  waiting_contexts = (uint64_t*) *(head + 0);
+
+  return (uint64_t*) *(head + 1);
+}
+
+void add_prologue_start_and_corresponding_merge_location(uint64_t prologue_start, uint64_t merge_location) {
+  uint64_t* entry;
+
+  entry = prologues_and_corresponding_merge_locations;
+
+  // do not add duplicates
+  while (entry) {
+    if (*(entry + 1) == prologue_start)
+      return;
+
+    entry = (uint64_t*) *(entry + 0);
+  }
+
+  entry = smalloc(3 * SIZEOFUINT64STAR);
+
+  *(entry + 0) = (uint64_t) prologues_and_corresponding_merge_locations;
+  *(entry + 1) = (uint64_t) prologue_start;
+  *(entry + 2) = (uint64_t) merge_location;
+
+
+  prologues_and_corresponding_merge_locations = entry;
+}
+
+uint64_t get_merge_location_from_corresponding_prologue_start(uint64_t prologue_start) {
+  uint64_t* entry;
+
+  entry = prologues_and_corresponding_merge_locations;
+
+  while (entry) {
+    if (*(entry + 1) == prologue_start)
+      return (uint64_t) *(entry + 2);
+
+    entry = (uint64_t*) *(entry + 0);
+  }
+
+  return -1;
+}
+
+uint64_t is_start_of_procedure_prologue(uint64_t prologue_start) {
+  uint64_t* entry;
+
+  entry = prologues_and_corresponding_merge_locations;
+
+  while (entry) {
+    if (*(entry + 1) == prologue_start)
+      return 1;
+
+    entry = (uint64_t*) *(entry + 0);
+  }
+
+  return 0;
+}
+
+void merge(uint64_t* active_context, uint64_t* mergeable_context, uint64_t location) {
+  print("; merging two contexts at ");
+  print_code_context_for_instruction(location);
+  println();
+
+  if (prologues_and_corresponding_merge_locations != (uint64_t*) 0)
+    if (get_pc(active_context) == *(prologues_and_corresponding_merge_locations + 2))
+      // we have finished the recursion
+      in_recursion = 0;
+
+  // merging the symbolic store
+  merge_symbolic_store(active_context, mergeable_context);
+
+  // merging the path condition
+  path_condition = smt_binary("or", get_path_condition(active_context), get_path_condition(mergeable_context));
+  set_path_condition(active_context, path_condition);
+
+  current_mergeable_context = get_mergeable_context();
+
+  // it may be possible that more contexts can be merged
+  if (current_mergeable_context != (uint64_t*) 0)
+    if (pc == get_pc(current_mergeable_context))
+      merge(active_context, current_mergeable_context, pc);
+}
+
+void merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context) {
+  uint64_t* sword_from_active_context;
+  uint64_t* sword_from_mergeable_context;
+  uint64_t i;
+
+  sword_from_active_context = symbolic_memory;
+  // merging the symbolic memory
+  while (sword_from_active_context) {
+    // check if the word has not already been 'deleted' (note: 'deleted' would mean an virtual address of -1)
+    if (get_word_address(sword_from_active_context) != (uint64_t) -1) {
+      sword_from_mergeable_context = get_symbolic_memory(mergeable_context);
+
+      while (sword_from_mergeable_context) {
+        if (get_word_address(sword_from_active_context) == get_word_address(sword_from_mergeable_context)) {
+          if (get_word_symbolic(sword_from_active_context) != (char*) 0) {
+            if (get_word_symbolic(sword_from_mergeable_context) != (char*) 0) {
+              if (get_word_symbolic(sword_from_active_context) != get_word_symbolic(sword_from_mergeable_context)) {
+                // merge symbolic values if they are different
+                set_word_symbolic(sword_from_active_context, 
+                  smt_ternary("ite", 
+                    get_path_condition(active_context), 
+                    get_word_symbolic(sword_from_active_context), 
+                    get_word_symbolic(sword_from_mergeable_context)
+                  )
+                );
+
+                // 'delete' the word since it does not need to be merged again
+                set_word_address(sword_from_mergeable_context, -1);
+              }
+            } else {
+              // merge symbolic value and concrete value
+              set_word_symbolic(sword_from_active_context, 
+                smt_ternary("ite", 
+                  get_path_condition(active_context), 
+                  get_word_symbolic(sword_from_active_context), 
+                  bv_constant(get_word_value(sword_from_mergeable_context))
+                )
+              );
+
+              // 'delete' the word since it does not need to be merged again
+              set_word_address(sword_from_mergeable_context, -1);
+            }
+          } else {
+            if (get_word_symbolic(sword_from_mergeable_context) != (char*) 0) {
+              // merge concrete value and symbolic value
+              set_word_symbolic(sword_from_active_context, 
+                smt_ternary("ite", 
+                  get_path_condition(active_context), 
+                  bv_constant(get_word_value(sword_from_active_context)), 
+                  get_word_symbolic(sword_from_mergeable_context)
+                )
+              );
+
+              // 'delete' the word since it does not need to be merged again
+              set_word_address(sword_from_mergeable_context, -1);
+            } else {
+              if (get_word_value(sword_from_active_context) != get_word_value(sword_from_mergeable_context)) {
+                // merge concrete values if they are different
+                set_word_symbolic(sword_from_active_context, 
+                  smt_ternary("ite", 
+                    get_path_condition(active_context), 
+                    bv_constant(get_word_value(sword_from_active_context)),
+                    bv_constant(get_word_value(sword_from_mergeable_context))
+                  )
+                );
+
+                // 'delete' the word since it does not need to be merged again
+                set_word_address(sword_from_mergeable_context, -1);
+              }
+            }
+          }
+        }
+
+        sword_from_mergeable_context = get_next_word(sword_from_mergeable_context);
+      }
+    }
+
+    sword_from_active_context = get_next_word(sword_from_active_context);
+  }
+
+  // the active context contains now the merged symbolic memory
+  set_symbolic_memory(active_context, symbolic_memory);  
+
+  i = 0;
+
+  // merging the symbolic registers
+  while (i < NUMBEROFREGISTERS) {
+    if (*(get_symbolic_regs(active_context) + i) != 0) {
+      if (*(get_symbolic_regs(mergeable_context) + i) != 0) {
+        if (*(get_symbolic_regs(active_context) + i) != *(get_symbolic_regs(mergeable_context) + i))
+          // merge symbolic values if they are different
+          *(reg_sym + i) = (uint64_t) smt_ternary("ite",
+                                        get_path_condition(active_context),
+                                        (char*) *(get_symbolic_regs(active_context) + i),
+                                        (char*) *(get_symbolic_regs(mergeable_context) + i)
+                                      );
+      } else
+        // merge symbolic value and concrete value
+        *(reg_sym + i) = (uint64_t) smt_ternary("ite",
+                                      get_path_condition(active_context),
+                                      (char*) *(get_symbolic_regs(active_context) + i),
+                                      bv_constant(*(get_regs(mergeable_context) + i))
+                                    );
+    } else {
+      if (*(get_symbolic_regs(mergeable_context) + i) != 0)
+        // merge concrete value and symbolic value
+        *(reg_sym + i) = (uint64_t) smt_ternary("ite",
+                                      get_path_condition(active_context),
+                                      bv_constant(*(get_regs(active_context) + i)),
+                                      (char*) *(get_symbolic_regs(mergeable_context) + i)
+                                    );
+      else
+        if (*(get_regs(active_context) + i) != *(get_regs(mergeable_context) + i))
+          // merge concrete values if they are different
+          *(reg_sym + i) = (uint64_t) smt_ternary("ite",
+                                        get_path_condition(active_context),
+                                        bv_constant(*(get_regs(active_context) + i)),
+                                        bv_constant(*(get_regs(mergeable_context) + i))
+                                      );
+    }
+  
+    i = i + 1;
+  }
+
+  set_symbolic_regs(active_context, reg_sym);
+}
+
+uint64_t* merge_if_possible_and_get_next_context(uint64_t* context) {
+  uint64_t merge_not_finished;
+  uint64_t mergeable;
+  uint64_t pauseable;
+
+  merge_not_finished = 1;
+
+  while (merge_not_finished) {
+    mergeable = 1;
+    pauseable = 1;
+
+    if (context == (uint64_t*) 0) {
+      // break out of the loop
+      mergeable = 0;
+      pauseable = 0;
+    } else
+      symbolic_memory = get_symbolic_memory(context);
+
+    // check if the context can be merged with one or more mergeable contexts
+    while (mergeable) {
+      if (current_mergeable_context == (uint64_t*) 0)
+        current_mergeable_context = get_mergeable_context();
+
+      if (current_mergeable_context != (uint64_t*) 0) {
+        if (get_pc(context) == get_pc(current_mergeable_context))
+          merge(context, current_mergeable_context, get_pc(context));
+        else
+          mergeable = 0;
+      } else
+        mergeable = 0;
+    }
+    
+    // check if the context has reached a merge location and needs to be paused
+    while (pauseable) {
+      if (get_pc(context) == get_merge_location(context)) {
+        add_mergeable_context(context);
+        context = get_waiting_context();
+        
+        // break out of the loop
+        if (context == (uint64_t*) 0) {
+          mergeable = 0;
+          pauseable = 0;
+        }
+
+      } else {
+        if (current_mergeable_context == (uint64_t*) 0)
+          current_mergeable_context = get_mergeable_context();
+        
+        if (current_mergeable_context != (uint64_t*) 0)
+          if (get_pc(context) == get_pc(current_mergeable_context))
+            mergeable = 1;
+        
+        pauseable = 0;
+      }
+    }
+
+    if(mergeable == 0)
+      if(pauseable == 0)
+        merge_not_finished = 0;
+  }
+
+  // check if there are contexts which have been paused and were not merged yet
+  if(context == (uint64_t*) 0)
+    context = get_mergeable_context();
+
+  return context;
 }
 
 // -----------------------------------------------------------------
@@ -8084,6 +8425,9 @@ void execute_debug() {
 }
 
 void execute_symbolically() {
+  uint64_t pc_after_jal;
+  uint64_t pc_before_jal;
+
   // assert: 1 <= is <= number of RISC-U instructions
   if (is == ADDI) {
     constrain_addi();
@@ -8113,9 +8457,56 @@ void execute_symbolically() {
     do_sltu();
   } else if (is == BEQ)
     constrain_beq();
-  else if (is == JAL)
+  else if (is == JAL) {
+    pc_before_jal = pc;
     do_jal();
-  else if (is == JALR) {
+
+    pc_after_jal = pc;
+
+    // we need to check if we get into a recursion
+    fetch();
+    decode();
+
+    if (is == ADDI) {
+      pc = pc + INSTRUCTIONSIZE;
+      fetch();
+      decode();
+
+      if (is == SD) {
+        pc = pc + INSTRUCTIONSIZE;
+        fetch();
+        decode();
+
+        if (is == ADDI) {
+          pc = pc + INSTRUCTIONSIZE;
+          fetch();
+          decode();
+
+          if (is == SD) {
+            pc = pc + INSTRUCTIONSIZE;
+            fetch();
+            decode();
+
+            // note: this check is not completely sufficient to determine a prologue of a procedure
+            // we would still have to check the registers, however, for the sake of simplicity this has been omitted
+            // we assume that we have identified a prologue of a procedure
+            if (is == ADDI) {
+              if (in_recursion == 0)
+                prologue_and_corresponding_merge_location = pc_before_jal + 2 * INSTRUCTIONSIZE;
+              else
+                // do not change the merge location since we only merge when the recursion is finished
+                prologue_and_corresponding_merge_location = *(prologues_and_corresponding_merge_locations + 2);
+                
+             prologue_start = pc_after_jal;
+             add_prologue_start_and_corresponding_merge_location(prologue_start, prologue_and_corresponding_merge_location);
+            }
+          }
+        }
+      }
+    }
+
+    pc = pc_after_jal;
+  } else if (is == JALR) {
     constrain_jalr();
     do_jalr();
   } else if (is == LUI) {
@@ -8138,6 +8529,20 @@ void interrupt() {
         // trigger timer in the next interrupt cycle
         timer = 1;
     }
+  }
+
+  if (symbolic) {
+    if (current_mergeable_context != (uint64_t*) 0)
+      // if both contexts are at the same program location, they can be merged
+      if (pc == get_pc(current_mergeable_context))
+        merge(current_context, current_mergeable_context, pc);
+    
+    // check if the current context has reached a merge location
+    if (pc == get_merge_location(current_context))
+      if (get_exception(current_context) == EXCEPTION_NOEXCEPTION)
+        // only throw exception if no other is pending
+        // TODO: handle multiple pending exceptions
+        throw_exception(EXCEPTION_MERGE, 0);
   }
 }
 
@@ -8199,7 +8604,7 @@ uint64_t print_per_instruction_counter(uint64_t total, uint64_t* counters, uint6
     *(counters + a / INSTRUCTIONSIZE) = 0;
 
     printf3(",%d(%.2d%%)@%x", (char*) c, (char*) fixed_point_percentage(fixed_point_ratio(total, c, 4), 4), (char*) a);
-    print_code_line_number_for_instruction(a, 0);
+    print_code_line_number_for_instruction(a);
 
     return c;
   } else {
@@ -8236,11 +8641,103 @@ void print_profile() {
   }
 }
 
-// *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
-// -----------------------------------------------------------------
-// ----------------------    R U N T I M E    ----------------------
-// -----------------------------------------------------------------
-// *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
+void translate_to_assembler() {
+  // assert: 1 <= is <= number of RISC-U instructions
+  if (is == ADDI)
+    print_addi();
+  else if (is == LD)
+    print_ld();
+  else if (is == SD)
+    print_sd();
+  else if (is == ADD)
+    print_add_sub_mul_divu_remu_sltu("add");
+  else if (is == SUB)
+    print_add_sub_mul_divu_remu_sltu("sub");
+  else if (is == MUL)
+    print_add_sub_mul_divu_remu_sltu("mul");
+  else if (is == DIVU)
+    print_add_sub_mul_divu_remu_sltu("divu");
+  else if (is == REMU)
+    print_add_sub_mul_divu_remu_sltu("remu");
+  else if (is == SLTU)
+    print_add_sub_mul_divu_remu_sltu("sltu");
+  else if (is == BEQ)
+    print_beq();
+  else if (is == JAL)
+    print_jal();
+  else if (is == JALR)
+    print_jalr();
+  else if (is == LUI)
+    print_lui();
+  else if (is == ECALL)
+    print_ecall();
+}
+
+void selfie_disassemble(uint64_t verbose) {
+  uint64_t data;
+
+  assembly_name = get_argument();
+
+  if (code_length == 0) {
+    printf2("%s: nothing to disassemble to output file %s\n", selfie_name, assembly_name);
+
+    return;
+  }
+
+  // assert: assembly_name is mapped and not longer than MAX_FILENAME_LENGTH
+
+  assembly_fd = open_write_only(assembly_name);
+
+  if (signed_less_than(assembly_fd, 0)) {
+    printf2("%s: could not create assembly output file %s\n", selfie_name, assembly_name);
+
+    exit(EXITCODE_IOERROR);
+  }
+
+  output_name = assembly_name;
+  output_fd   = assembly_fd;
+
+  run = 0;
+
+  reset_library();
+  reset_interpreter();
+
+  disassemble         = 1;
+  disassemble_verbose = verbose;
+
+  while (pc < code_length) {
+    ir = load_instruction(pc);
+
+    decode();
+
+    translate_to_assembler();
+
+    println();
+
+    pc = pc + INSTRUCTIONSIZE;
+  }
+
+  while (pc < binary_length) {
+    data = load_data(pc);
+
+    print_data(data);
+    println();
+
+    pc = pc + REGISTERSIZE;
+  }
+
+  disassemble_verbose = 0;
+  disassemble         = 0;
+
+  output_name = (char*) 0;
+  output_fd   = 1;
+
+  printf5("%s: %d characters of assembly with %d instructions and %d bytes of data written into %s\n", selfie_name,
+    (char*) number_of_written_characters,
+    (char*) (code_length / INSTRUCTIONSIZE),
+    (char*) (binary_length - code_length),
+    assembly_name);
+}
 
 // -----------------------------------------------------------------
 // ---------------------------- CONTEXTS ---------------------------
@@ -8302,11 +8799,12 @@ void init_context(uint64_t* context, uint64_t* parent, uint64_t* vctxt) {
     set_path_condition(context, "true");
     set_symbolic_memory(context, (uint64_t*) 0);
     set_symbolic_regs(context, zalloc(NUMBEROFREGISTERS * REGISTERSIZE));
-    set_related_context(context, (uint64_t*) 0);
+    set_beq_counter(context, 0);
+    set_merge_location(context, -1);
   }
 }
 
-void copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth) {
+uint64_t* copy_context(uint64_t* original, uint64_t location, char* condition, uint64_t depth) {
   uint64_t* context;
   uint64_t r;
 
@@ -8338,7 +8836,10 @@ void copy_context(uint64_t* original, uint64_t location, char* condition, uint64
 
   set_execution_depth(context, depth);
   set_path_condition(context, condition);
-  set_symbolic_memory(context, symbolic_memory);
+  set_beq_counter(context, get_beq_counter(original));
+  set_merge_location(context, get_merge_location(original));
+
+  copy_symbolic_memory(original, context);
 
   set_symbolic_regs(context, smalloc(NUMBEROFREGISTERS * REGISTERSIZE));
 
@@ -8350,9 +8851,9 @@ void copy_context(uint64_t* original, uint64_t location, char* condition, uint64
     r = r + 1;
   }
 
-  set_related_context(context, symbolic_contexts);
-
   symbolic_contexts = context;
+
+  return context;
 }
 
 uint64_t* find_context(uint64_t* parent, uint64_t* vctxt) {
@@ -8819,16 +9320,24 @@ uint64_t handle_timer(uint64_t* context) {
   set_exception(context, EXCEPTION_NOEXCEPTION);
 
   if (symbolic) {
-    print("(push 1)\n");
+    print(";(push 1)\n");
 
-    printf1("(assert (not %s)); timeout in ", path_condition);
+    printf1(";(assert (not %s)); timeout in ", path_condition);
     print_code_context_for_instruction(pc);
 
-    print("\n(check-sat)\n(get-model)\n(pop 1)\n");
+    print("\n;(check-sat)\n;(get-model)\n;(pop 1)\n");
 
     return EXIT;
   } else
     return DONOTEXIT;
+}
+
+uint64_t handle_merge(uint64_t* context) {
+  add_mergeable_context(current_context);
+
+  set_exception(context, EXCEPTION_NOEXCEPTION);
+
+  return MERGE;
 }
 
 uint64_t handle_exception(uint64_t* context) {
@@ -8844,6 +9353,8 @@ uint64_t handle_exception(uint64_t* context) {
     return handle_division_by_zero(context);
   else if (exception == EXCEPTION_TIMER)
     return handle_timer(context);
+  else if (exception == EXCEPTION_MERGE)
+    return handle_merge(context);
   else {
     printf2("%s: context %s throws uncaught ", selfie_name, get_name(context));
     print_exception(exception, get_faulting_page(context));
@@ -9026,14 +9537,14 @@ uint64_t mobster(uint64_t* to_context) {
   return minmob(to_context);
 }
 
-char* replace_extension(char* filename, char* extension) {
+char* replace_extension(char* filename, uint64_t e) {
   char* s;
   uint64_t i;
   uint64_t c;
 
-  // assert: string_length(filename) + 1 + string_length(extension) < MAX_FILENAME_LENGTH
+  // assert: 0 < string_length(filename) - 2 < MAX_FILENAME_LENGTH
 
-  s = string_alloc(string_length(filename) + 1 + string_length(extension));
+  s = string_alloc(string_length(filename) + 2);
 
   i = 0;
 
@@ -9053,23 +9564,23 @@ char* replace_extension(char* filename, char* extension) {
     }
   }
 
-  // writing s plus extension into s
-  sprintf2(s, "%s.%s", s, extension);
+  // writing s plus extension into s works because we allocated two more bytes
+  sprintf2(s, "%s.%c", s, (char*) e);
 
   return s;
 }
 
 uint64_t monster(uint64_t* to_context) {
-  uint64_t timeout;
+  uint64_t  timeout;
   uint64_t* from_context;
+  uint64_t  exception;
 
   print("monster\n");
 
-  // use extension ".smt" in name of SMT-LIB file
-  smt_name = replace_extension(binary_name, "smt");
+  // use extension ".t" in name of SMT-LIB file
+  smt_name = replace_extension(binary_name, 't');
 
   // assert: smt_name is mapped and not longer than MAX_FILENAME_LENGTH
-
   smt_fd = open_write_only(smt_name);
 
   if (signed_less_than(smt_fd, 0)) {
@@ -9081,20 +9592,17 @@ uint64_t monster(uint64_t* to_context) {
   output_name = smt_name;
   output_fd   = smt_fd;
 
-  printf1("; %s\n\n", SELFIE_URL);
-
-  printf1("; SMT-LIB formulae generated by %s for\n", selfie_name);
-  printf1("; RISC-V code obtained from %s with ", binary_name);
+  printf1("; SMT-LIB formulae selfie-generated by %s\n", selfie_name);
   if (max_execution_depth)
-    printf1("%d execution depth\n\n", (char*) max_execution_depth);
+    printf2("; for %s with %d execution depth\n\n", binary_name, (char*) max_execution_depth);
   else
-    print("unbounded execution depth\n\n");
+    printf1("; for %s with unbounded execution depth\n\n", binary_name);
 
   print("(set-option :produce-models true)\n");
   print("(set-option :incremental true)\n");
   print("(set-logic QF_BV)\n\n");
 
-  timeout = max_execution_depth;
+  timeout = max_execution_depth - get_execution_depth(to_context);
 
   while (1) {
     from_context = mipster_switch(to_context, timeout);
@@ -9105,14 +9613,36 @@ uint64_t monster(uint64_t* to_context) {
 
       timeout = TIMEROFF;
     } else {
-      if (handle_exception(from_context) == EXIT) {
-        if (symbolic_contexts) {
-          to_context = symbolic_contexts;
+      exception = handle_exception(from_context);
 
-          timeout = get_execution_depth(to_context);
+      if (exception == EXIT) {
+        set_symbolic_memory(from_context, symbolic_memory);
 
-          symbolic_contexts = get_related_context(symbolic_contexts);
-        } else {
+        // if a context is currently waiting to be merged, we need to switch to this one
+        if (current_mergeable_context != (uint64_t*) 0) {
+          // update the merge location, so the 'new' context can be merged later
+          set_merge_location(current_mergeable_context, get_merge_location(current_context));
+
+          to_context = current_mergeable_context;
+
+        // if no context is currently waiting to be merged, we switch to the next waiting context
+        } else
+          to_context = get_waiting_context();
+
+        // it may be possible that there are no waiting contexts, but mergeable contexts
+        if (to_context == (uint64_t*) 0) {
+          to_context = get_mergeable_context();
+
+          if (to_context)
+            // update the merge location, so the 'new' context can be merged later
+            set_merge_location(to_context, get_merge_location(current_context));
+        }
+
+        to_context = merge_if_possible_and_get_next_context(to_context);
+
+        if (to_context)
+          timeout = max_execution_depth - get_execution_depth(to_context);
+        else {
           print("\n(exit)");
 
           output_name = (char*) 0;
@@ -9124,6 +9654,12 @@ uint64_t monster(uint64_t* to_context) {
 
           return EXITCODE_NOERROR;
         }
+      } else if (exception == MERGE) {
+        set_symbolic_memory(from_context, symbolic_memory);
+
+        to_context = merge_if_possible_and_get_next_context(get_waiting_context());
+
+        timeout = max_execution_depth - get_execution_depth(to_context);
       } else {
         timeout = timer;
 
@@ -9158,7 +9694,7 @@ void boot_loader() {
 
   up_load_binary(current_context);
 
-  // pass binary name as first argument by replacing current argument
+  // pass binary name as first argument by replacing memory size
   set_argument(binary_name);
 
   up_load_arguments(current_context, number_of_remaining_arguments(), remaining_arguments());
@@ -9173,13 +9709,9 @@ uint64_t selfie_run(uint64_t machine) {
     return EXITCODE_BADARGUMENTS;
   }
 
-  reset_interpreter();
-  reset_profiler();
-  reset_microkernel();
-
   if (machine == DIPSTER) {
-    debug          = 1;
-    debug_syscalls = 1;
+    debug       = 1;
+    disassemble = 1;
   } else if (machine == RIPSTER) {
     debug  = 1;
     record = 1;
@@ -9191,20 +9723,23 @@ uint64_t selfie_run(uint64_t machine) {
   }
 
   if (machine != MONSTER)
-    init_memory(atoi(peek_argument(0)));
+    init_memory(atoi(peek_argument()));
   else {
     init_memory(1);
 
-    max_execution_depth = atoi(peek_argument(0));
+    max_execution_depth = atoi(peek_argument());
   }
+
+  run = 1;
+
+  reset_interpreter();
+  reset_microkernel();
 
   boot_loader();
 
   printf3("%s: selfie executing %s with %dMB physical memory on ", selfie_name,
     binary_name,
     (char*) (page_frame_memory / MEGABYTE));
-
-  run = 1;
 
   if (machine == MIPSTER)
     exit_code = mipster(current_context);
@@ -9236,2070 +9771,19 @@ uint64_t selfie_run(uint64_t machine) {
 
   print_profile();
 
-  symbolic = 0;
-  record   = 0;
-
-  debug_syscalls = 0;
-  debug          = 0;
+  symbolic    = 0;
+  record      = 0;
+  disassemble = 0;
+  debug       = 0;
 
   return exit_code;
 }
 
 // *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
 // -----------------------------------------------------------------
-// -------------------   C O R R E C T N E S S    ------------------
+// ----------------   T H E O R E M  P R O V E R    ----------------
 // -----------------------------------------------------------------
 // *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
-
-// -----------------------------------------------------------------
-// -------------------------- DISASSEMBLER -------------------------
-// -----------------------------------------------------------------
-
-void translate_to_assembler() {
-  // assert: 1 <= is <= number of RISC-U instructions
-  if (is == ADDI)
-    print_addi();
-  else if (is == LD)
-    print_ld();
-  else if (is == SD)
-    print_sd();
-  else if (is == ADD)
-    print_add_sub_mul_divu_remu_sltu("add");
-  else if (is == SUB)
-    print_add_sub_mul_divu_remu_sltu("sub");
-  else if (is == MUL)
-    print_add_sub_mul_divu_remu_sltu("mul");
-  else if (is == DIVU)
-    print_add_sub_mul_divu_remu_sltu("divu");
-  else if (is == REMU)
-    print_add_sub_mul_divu_remu_sltu("remu");
-  else if (is == SLTU)
-    print_add_sub_mul_divu_remu_sltu("sltu");
-  else if (is == BEQ)
-    print_beq();
-  else if (is == JAL)
-    print_jal();
-  else if (is == JALR)
-    print_jalr();
-  else if (is == LUI)
-    print_lui();
-  else if (is == ECALL)
-    print_ecall();
-}
-
-void selfie_disassemble(uint64_t verbose) {
-  uint64_t data;
-
-  assembly_name = get_argument();
-
-  if (code_length == 0) {
-    printf2("%s: nothing to disassemble to output file %s\n", selfie_name, assembly_name);
-
-    return;
-  }
-
-  // assert: assembly_name is mapped and not longer than MAX_FILENAME_LENGTH
-
-  assembly_fd = open_write_only(assembly_name);
-
-  if (signed_less_than(assembly_fd, 0)) {
-    printf2("%s: could not create assembly output file %s\n", selfie_name, assembly_name);
-
-    exit(EXITCODE_IOERROR);
-  }
-
-  output_name = assembly_name;
-  output_fd   = assembly_fd;
-
-  reset_library();
-  reset_interpreter();
-
-  run = 0;
-
-  disassemble_verbose = verbose;
-
-  while (pc < code_length) {
-    ir = load_instruction(pc);
-
-    decode();
-    translate_to_assembler();
-    println();
-
-    pc = pc + INSTRUCTIONSIZE;
-  }
-
-  while (pc < binary_length) {
-    data = load_data(pc);
-
-    print_data(data);
-    println();
-
-    pc = pc + REGISTERSIZE;
-  }
-
-  disassemble_verbose = 0;
-
-  output_name = (char*) 0;
-  output_fd   = 1;
-
-  printf5("%s: %d characters of assembly with %d instructions and %d bytes of data written into %s\n", selfie_name,
-    (char*) number_of_written_characters,
-    (char*) (code_length / INSTRUCTIONSIZE),
-    (char*) (binary_length - code_length),
-    assembly_name);
-}
-
-// -----------------------------------------------------------------
-// ------------------------ MODEL GENERATOR ------------------------
-// -----------------------------------------------------------------
-
-uint64_t pc_nid(uint64_t nid, uint64_t pc) {
-  return nid + pc * 100;
-}
-
-uint64_t is_procedure_call(uint64_t instruction, uint64_t link) {
-  if (instruction == JAL)
-    if (link != REG_ZR)
-      return 1;
-
-  return 0;
-}
-
-uint64_t validate_procedure_body(uint64_t from_instruction, uint64_t from_link, uint64_t to_address) {
-  if (is_procedure_call(from_instruction, from_link) == 0) {
-    // no forward branches and jumps that are not "procedure calls" outside of "procedure body"
-    if (to_address > estimated_return)
-      // estimating address of jalr at the end of "procedure body"
-      estimated_return = to_address;
-
-    if (to_address < current_callee)
-      // no backward branches and jumps that are not "procedure calls" outside of "procedure body"
-      return 0;
-  }
-
-  return 1;
-}
-
-void go_to_instruction(uint64_t from_instruction, uint64_t from_link, uint64_t from_address, uint64_t to_address, uint64_t condition_nid) {
-  uint64_t* in_edge;
-
-  if (to_address < entry_point + code_length) {
-    if (validate_procedure_body(from_instruction, from_link, to_address)) {
-      in_edge = smalloc(SIZEOFUINT64STAR + 3 * SIZEOFUINT64);
-
-      *in_edge       = *(control_in + (to_address - entry_point) / INSTRUCTIONSIZE);
-      *(in_edge + 1) = from_instruction; // from which instruction
-      *(in_edge + 2) = from_address;     // at which address
-      *(in_edge + 3) = condition_nid;    // under which condition are we coming
-
-      *(control_in + (to_address - entry_point) / INSTRUCTIONSIZE) = (uint64_t) in_edge;
-
-      return;
-    }
-  } else if (from_address == entry_point + code_length - INSTRUCTIONSIZE)
-    // from_instruction is last instruction in binary
-    if (*(control_in + (from_address - entry_point) / INSTRUCTIONSIZE) == 0)
-      // and unreachable
-      return;
-
-  // the instruction at from_address proceeds to an instruction at an invalid to_address
-
-  //report the error on the console
-  output_fd = 1;
-
-  printf2("%s: invalid instruction address %x detected\n", selfie_name, (char*) to_address);
-
-  exit(EXITCODE_MODELCHECKINGERROR);
-}
-
-void reset_bounds() {
-  if (check_block_access) {
-    // if this instruction is active reset lower bound on $rd register to end of code segment
-    printf3("%d ite 2 %d 30 %d\n",
-      (char*) current_nid,                      // nid of this line
-      (char*) pc_nid(pcs_nid, pc),              // nid of pc flag of this instruction
-      (char*) *(reg_flow_nids + LO_FLOW + rd)); // nid of most recent update of lower bound on $rd register
-
-    *(reg_flow_nids + LO_FLOW + rd) = current_nid;
-
-    current_nid = current_nid + 1;
-
-    // if this instruction is active reset upper bound on $rd register to 4GB of memory addresses
-    printf3("%d ite 2 %d 50 %d\n",
-      (char*) current_nid,                      // nid of this line
-      (char*) pc_nid(pcs_nid, pc),              // nid of pc flag of this instruction
-      (char*) *(reg_flow_nids + UP_FLOW + rd)); // nid of most recent update of upper bound on $rd register
-
-    *(reg_flow_nids + UP_FLOW + rd) = current_nid;
-
-    current_nid = current_nid + 1;
-  }
-}
-
-void model_lui() {
-  if (rd != REG_ZR) {
-    reset_bounds();
-
-    printf3("%d constd 2 %d ; %x << 12\n", (char*) current_nid, (char*) left_shift(imm, 12), (char*) imm);
-
-    // if this instruction is active set $rd = imm << 12
-    printf4("%d ite 2 %d %d %d ; ",
-      (char*) (current_nid + 1),      // nid of this line
-      (char*) pc_nid(pcs_nid, pc),    // nid of pc flag of this instruction
-      (char*) current_nid,            // nid of immediate argument left-shifted by 12 bits
-      (char*) *(reg_flow_nids + rd)); // nid of most recent update of $rd register
-
-    *(reg_flow_nids + rd) = current_nid + 1;
-
-    print_lui();println();
-  }
-
-  go_to_instruction(is, REG_ZR, pc, pc + INSTRUCTIONSIZE, 0);
-}
-
-void transfer_bounds() {
-  if (check_block_access) {
-    // if this instruction is active set lower bound on $rd = lower bound on $rs1 register
-    printf4("%d ite 2 %d %d %d\n",
-      (char*) current_nid,                      // nid of this line
-      (char*) pc_nid(pcs_nid, pc),              // nid of pc flag of this instruction
-      (char*) (reg_nids + LO_FLOW + rs1),       // nid of lower bound on $rs1 register
-      (char*) *(reg_flow_nids + LO_FLOW + rd)); // nid of most recent update of lower bound on $rd register
-
-    *(reg_flow_nids + LO_FLOW + rd) = current_nid;
-
-    current_nid = current_nid + 1;
-
-    // if this instruction is active set upper bound on $rd = upper bound on $rs1 register
-    printf4("%d ite 2 %d %d %d\n",
-      (char*) current_nid,                      // nid of this line
-      (char*) pc_nid(pcs_nid, pc),              // nid of pc flag of this instruction
-      (char*) (reg_nids + UP_FLOW + rs1),       // nid of upper bound on $rs1 register
-      (char*) *(reg_flow_nids + UP_FLOW + rd)); // nid of most recent update of upper bound on $rd register
-
-    *(reg_flow_nids + UP_FLOW + rd) = current_nid;
-
-    current_nid = current_nid + 1;
-  }
-}
-
-void model_addi() {
-  uint64_t result_nid;
-
-  if (rd != REG_ZR) {
-    transfer_bounds();
-
-    if (imm == 0)
-      result_nid = reg_nids + rs1;
-    else {
-      printf3("%d constd 2 %d ; %x\n", (char*) current_nid, (char*) imm, (char*) imm);
-
-      if (rs1 == REG_ZR) {
-        result_nid = current_nid;
-
-        current_nid = current_nid + 1;
-
-        if (rd == REG_A7)
-          // assert: next instruction is ecall
-          reg_a7 = imm;
-      } else {
-        // compute $rs1 + imm
-        printf3("%d add 2 %d %d\n",
-          (char*) (current_nid + 1), // nid of this line
-          (char*) (reg_nids + rs1),  // nid of current value of $rs1 register
-          (char*) current_nid);      // nid of immediate value
-
-        result_nid = current_nid + 1;
-
-        current_nid = current_nid + 2;
-      }
-    }
-
-    // if this instruction is active set $rd = $rs1 + imm
-    printf4("%d ite 2 %d %d %d ; ",
-      (char*) current_nid,            // nid of this line
-      (char*) pc_nid(pcs_nid, pc),    // nid of pc flag of this instruction
-      (char*) result_nid,             // nid of $rs1 + ismm
-      (char*) *(reg_flow_nids + rd)); // nid of most recent update of $rd register
-
-    *(reg_flow_nids + rd) = current_nid;
-
-    print_addi();println();
-  }
-
-  go_to_instruction(is, REG_ZR, pc, pc + INSTRUCTIONSIZE, 0);
-}
-
-void model_add() {
-  if (rd != REG_ZR) {
-    if (check_block_access) {
-      // lower bound on $rs1 register > lower bound on $rs2 register
-      printf3("%d ugt 1 %d %d\n",
-        (char*) current_nid,                 // nid of this line
-        (char*) (reg_nids + LO_FLOW + rs1),  // nid of lower bound on $rs1 register
-        (char*) (reg_nids + LO_FLOW + rs2)); // nid of lower bound on $rs2 register
-
-      // greater lower bound of $rs1 and $rs2 registers
-      printf4("%d ite 2 %d %d %d\n",
-        (char*) (current_nid + 1),           // nid of this line
-        (char*) current_nid,                 // nid of lower bound on $rs1 > lower bound on $rs2
-        (char*) (reg_nids + LO_FLOW + rs1),  // nid of lower bound on $rs1 register
-        (char*) (reg_nids + LO_FLOW + rs2)); // nid of lower bound on $rs2 register
-
-      // if this instruction is active set lower bound on $rd = greater lower bound of $rs1 and $rs2 registers
-      printf4("%d ite 2 %d %d %d\n",
-        (char*) (current_nid + 2),                // nid of this line
-        (char*) pc_nid(pcs_nid, pc),              // nid of pc flag of this instruction
-        (char*) (current_nid + 1),                // nid of greater lower bound of $rs1 and $rs2 registers
-        (char*) *(reg_flow_nids + LO_FLOW + rd)); // nid of most recent update of lower bound on $rd register
-
-      *(reg_flow_nids + LO_FLOW + rd) = current_nid + 2;
-
-      current_nid = current_nid + 3;
-
-      // upper bound on $rs1 register < upper bound on $rs2 register
-      printf3("%d ult 1 %d %d\n",
-        (char*) current_nid,                 // nid of this line
-        (char*) (reg_nids + UP_FLOW + rs1),  // nid of upper bound on $rs1 register
-        (char*) (reg_nids + UP_FLOW + rs2)); // nid of upper bound on $rs2 register
-
-      // lesser upper bound of $rs1 and $rs2 registers
-      printf4("%d ite 2 %d %d %d\n",
-        (char*) (current_nid + 1),           // nid of this line
-        (char*) current_nid,                 // nid of upper bound on $rs1 < upper bound on $rs2
-        (char*) (reg_nids + UP_FLOW + rs1),  // nid of upper bound on $rs1 register
-        (char*) (reg_nids + UP_FLOW + rs2)); // nid of upper bound on $rs2 register
-
-      // if this instruction is active set upper bound on $rd = lesser upper bound of $rs1 and $rs2 registers
-      printf4("%d ite 2 %d %d %d\n",
-        (char*) (current_nid + 2),                // nid of this line
-        (char*) pc_nid(pcs_nid, pc),              // nid of pc flag of this instruction
-        (char*) (current_nid + 1),                // nid of lesser upper bound of $rs1 and $rs2 registers
-        (char*) *(reg_flow_nids + UP_FLOW + rd)); // nid of most recent update of upper bound on $rd register
-
-      *(reg_flow_nids + UP_FLOW + rd) = current_nid + 2;
-
-      current_nid = current_nid + 3;
-    }
-
-    // compute $rs1 + $rs2
-    printf3("%d add 2 %d %d\n",
-      (char*) current_nid,       // nid of this line
-      (char*) (reg_nids + rs1),  // nid of current value of $rs1 register
-      (char*) (reg_nids + rs2)); // nid of current value of $rs2 register
-
-    // if this instruction is active set $rd = $rs1 + $rs2
-    printf4("%d ite 2 %d %d %d ; ",
-      (char*) (current_nid + 1),      // nid of this line
-      (char*) pc_nid(pcs_nid, pc),    // nid of pc flag of this instruction
-      (char*) current_nid,            // nid of $rs1 + $rs2
-      (char*) *(reg_flow_nids + rd)); // nid of most recent update of $rd register
-
-    *(reg_flow_nids + rd) = current_nid + 1;
-
-    print_add_sub_mul_divu_remu_sltu("add");println();
-  }
-
-  go_to_instruction(is, REG_ZR, pc, pc + INSTRUCTIONSIZE, 0);
-}
-
-void model_sub() {
-  if (rd != REG_ZR) {
-    // TODO: check if bounds on $rs2 are really initial bounds
-    transfer_bounds();
-
-    // compute $rs1 - $rs2
-    printf3("%d sub 2 %d %d\n",
-      (char*) current_nid,       // nid of this line
-      (char*) (reg_nids + rs1),  // nid of current value of $rs1 register
-      (char*) (reg_nids + rs2)); // nid of current value of $rs2 register
-
-    // if this instruction is active set $rd = $rs1 - $rs2
-    printf4("%d ite 2 %d %d %d ; ",
-      (char*) (current_nid + 1),      // nid of this line
-      (char*) pc_nid(pcs_nid, pc),    // nid of pc flag of this instruction
-      (char*) current_nid,            // nid of $rs1 - $rs2
-      (char*) *(reg_flow_nids + rd)); // nid of most recent update of $rd register
-
-    *(reg_flow_nids + rd) = current_nid + 1;
-
-    print_add_sub_mul_divu_remu_sltu("sub");println();
-  }
-
-  go_to_instruction(is, REG_ZR, pc, pc + INSTRUCTIONSIZE, 0);
-}
-
-void model_mul() {
-  if (rd != REG_ZR) {
-    // TODO: check if bounds on $rs1 and $rs2 are really initial bounds
-    reset_bounds();
-
-    // compute $rs1 * $rs2
-    printf3("%d mul 2 %d %d\n",
-      (char*) current_nid,       // nid of this line
-      (char*) (reg_nids + rs1),  // nid of current value of $rs1 register
-      (char*) (reg_nids + rs2)); // nid of current value of $rs2 register
-
-    // if this instruction is active set $rd = $rs1 * $rs2
-    printf4("%d ite 2 %d %d %d ; ",
-      (char*) (current_nid + 1),      // nid of this line
-      (char*) pc_nid(pcs_nid, pc),    // nid of pc flag of this instruction
-      (char*) current_nid,            // nid of $rs1 * $rs2
-      (char*) *(reg_flow_nids + rd)); // nid of most recent update of $rd register
-
-    *(reg_flow_nids + rd) = current_nid + 1;
-
-    print_add_sub_mul_divu_remu_sltu("mul");println();
-  }
-
-  go_to_instruction(is, REG_ZR, pc, pc + INSTRUCTIONSIZE, 0);
-}
-
-void model_divu() {
-  if (rd != REG_ZR) {
-    // TODO: check if bounds on $rs1 and $rs2 are really initial bounds
-    reset_bounds();
-
-    // if this instruction is active record $rs2 for checking if $rs2 == 0
-    printf5("%d ite 2 %d %d %d ; record %s for checking division by zero\n",
-      (char*) current_nid,         // nid of this line
-      (char*) pc_nid(pcs_nid, pc), // nid of pc flag of this instruction
-      (char*) (reg_nids + rs2),    // nid of current value of $rs2 register
-      (char*) division_flow_nid,   // nid of divisor of most recent division
-      get_register_name(rs2));     // register name
-
-    division_flow_nid = current_nid;
-
-    current_nid = current_nid + 1;
-
-    // compute $rs1 / $rs2
-    printf3("%d udiv 2 %d %d\n",
-      (char*) current_nid,       // nid of this line
-      (char*) (reg_nids + rs1),  // nid of current value of $rs1 register
-      (char*) (reg_nids + rs2)); // nid of current value of $rs2 register
-
-    // if this instruction is active set $rd = $rs1 / $rs2
-    printf4("%d ite 2 %d %d %d ; ",
-      (char*) (current_nid + 1),      // nid of this line
-      (char*) pc_nid(pcs_nid, pc),    // nid of pc flag of this instruction
-      (char*) current_nid,            // nid of $rs1 / $rs2
-      (char*) *(reg_flow_nids + rd)); // nid of most recent update of $rd register
-
-    *(reg_flow_nids + rd) = current_nid + 1;
-
-    print_add_sub_mul_divu_remu_sltu("divu");println();
-  }
-
-  go_to_instruction(is, REG_ZR, pc, pc + INSTRUCTIONSIZE, 0);
-}
-
-void model_remu() {
-  if (rd != REG_ZR) {
-    // TODO: check if bounds on $rs1 and $rs2 are really initial bounds
-    reset_bounds();
-
-    // if this instruction is active record $rs2 for checking if $rs2 == 0
-    printf5("%d ite 2 %d %d %d ; record %s for checking remainder by zero\n",
-      (char*) current_nid,         // nid of this line
-      (char*) pc_nid(pcs_nid, pc), // nid of pc flag of this instruction
-      (char*) (reg_nids + rs2),    // nid of current value of $rs2 register
-      (char*) remainder_flow_nid,  // nid of divisor of most recent remainder
-      get_register_name(rs2));     // register name
-
-    remainder_flow_nid = current_nid;
-
-    current_nid = current_nid + 1;
-
-    // compute $rs1 % $rs2
-    printf3("%d urem 2 %d %d\n",
-      (char*) current_nid,       // nid of this line
-      (char*) (reg_nids + rs1),  // nid of current value of $rs1 register
-      (char*) (reg_nids + rs2)); // nid of current value of $rs2 register
-
-    // if this instruction is active set $rd = $rs1 % $rs2
-    printf4("%d ite 2 %d %d %d ; ",
-      (char*) (current_nid + 1),      // nid of this line
-      (char*) pc_nid(pcs_nid, pc),    // nid of pc flag of this instruction
-      (char*) current_nid,            // nid of $rs1 % $rs2
-      (char*) *(reg_flow_nids + rd)); // nid of most recent update of $rd register
-
-    *(reg_flow_nids + rd) = current_nid + 1;
-
-    print_add_sub_mul_divu_remu_sltu("remu");println();
-  }
-
-  go_to_instruction(is, REG_ZR, pc, pc + INSTRUCTIONSIZE, 0);
-}
-
-void model_sltu() {
-  if (rd != REG_ZR) {
-    reset_bounds();
-
-    // compute $rs1 < $rs2
-    printf3("%d ult 1 %d %d\n",
-      (char*) current_nid,       // nid of this line
-      (char*) (reg_nids + rs1),  // nid of current value of $rs1 register
-      (char*) (reg_nids + rs2)); // nid of current value of $rs2 register
-
-    // unsigned-extend $rs1 < $rs2 by 63 bits to 64 bits
-    printf2("%d uext 2 %d 63\n",
-      (char*) (current_nid + 1), // nid of this line
-      (char*) current_nid);      // nid of $rs1 < $rs2
-
-    // if this instruction is active set $rd = $rs1 < $rs2
-    printf4("%d ite 2 %d %d %d ; ",
-      (char*) (current_nid + 2),      // nid of this line
-      (char*) pc_nid(pcs_nid, pc),    // nid of pc flag of this instruction
-      (char*) (current_nid + 1),      // nid of unsigned-64-bit-extended $rs1 < $rs2
-      (char*) *(reg_flow_nids + rd)); // nid of most recent update of $rd register
-
-    *(reg_flow_nids + rd) = current_nid + 2;
-
-    print_add_sub_mul_divu_remu_sltu("sltu");println();
-  }
-
-  go_to_instruction(is, REG_ZR, pc, pc + INSTRUCTIONSIZE, 0);
-}
-
-uint64_t record_start_bounds(uint64_t offset, uint64_t activation_nid, uint64_t reg) {
-  if (check_block_access) {
-    // if current instruction is active record lower bound on $reg register for checking address validity
-    printf4("%d ite 2 %d %d %d\n",
-      (char*) (current_nid + offset),     // nid of this line
-      (char*) activation_nid,             // nid of activation condition of current instruction
-      (char*) (reg_nids + LO_FLOW + reg), // nid of current lower bound on $reg register
-      (char*) lo_flow_start_nid);         // nid of most recent update of lower bound on memory access
-
-    lo_flow_start_nid = current_nid + offset;
-
-    offset = offset + 1;
-
-    // if current instruction is active record upper bound on $reg register for checking address validity
-    printf4("%d ite 2 %d %d %d\n",
-      (char*) (current_nid + offset),     // nid of this line
-      (char*) activation_nid,             // nid of activation condition of current instruction
-      (char*) (reg_nids + UP_FLOW + reg), // nid of current upper bound on $reg register
-      (char*) up_flow_start_nid);         // nid of most recent update of upper bound on memory access
-
-    up_flow_start_nid = current_nid + offset;
-
-    return offset + 1;
-  } else
-    return offset;
-}
-
-uint64_t record_end_bounds(uint64_t offset, uint64_t activation_nid, uint64_t reg) {
-  if (check_block_access) {
-    // if current instruction is active record lower bound on $reg register for checking address validity
-    printf4("%d ite 2 %d %d %d\n",
-      (char*) (current_nid + offset),     // nid of this line
-      (char*) activation_nid,             // nid of activation condition of current instruction
-      (char*) (reg_nids + LO_FLOW + reg), // nid of current lower bound on $reg register
-      (char*) lo_flow_end_nid);           // nid of most recent update of lower bound on memory access
-
-    lo_flow_end_nid = current_nid + offset;
-
-    offset = offset + 1;
-
-    // if current instruction is active record upper bound on $reg register for checking address validity
-    printf4("%d ite 2 %d %d %d\n",
-      (char*) (current_nid + offset),     // nid of this line
-      (char*) activation_nid,             // nid of activation condition of current instruction
-      (char*) (reg_nids + UP_FLOW + reg), // nid of current upper bound on $reg register
-      (char*) up_flow_end_nid);           // nid of most recent update of upper bound on memory access
-
-    up_flow_end_nid = current_nid + offset;
-
-    return offset + 1;
-  } else
-    return offset;
-}
-
-uint64_t compute_address() {
-  if (imm == 0)
-    return reg_nids + rs1; // nid of current value of $rs1 register
-  else {
-    printf3("%d constd 2 %d ; %x\n", (char*) current_nid, (char*) imm, (char*) imm);
-
-    // compute $rs1 + imm
-    printf3("%d add 2 %d %d\n",
-      (char*) (current_nid + 1), // nid of this line
-      (char*) (reg_nids + rs1),  // nid of current value of $rs1 register
-      (char*) current_nid);      // nid of immediate value
-
-    current_nid = current_nid + 2;
-
-    return current_nid - 1; // nid of $rs1 + imm
-  }
-}
-
-void model_ld() {
-  uint64_t address_nid;
-
-  if (rd != REG_ZR) {
-    current_nid = current_nid + record_start_bounds(0, pc_nid(pcs_nid, pc), rs1);
-
-    address_nid = compute_address();
-
-    // if this instruction is active record $rs1 + imm for checking address validity
-    printf4("%d ite 2 %d %d %d\n",
-      (char*) current_nid,            // nid of this line
-      (char*) pc_nid(pcs_nid, pc),    // nid of pc flag of this instruction
-      (char*) address_nid,            // nid of $rs1 + imm
-      (char*) access_flow_start_nid); // nid of address of most recent memory access
-
-    access_flow_start_nid = current_nid;
-
-    current_nid = current_nid + 1;
-
-    if (check_block_access) {
-      // read from lower-bounds memory[$rs1 + imm] into lower bound on $rd register
-      printf3("%d read 2 %d %d\n",
-        (char*) current_nid,   // nid of this line
-        (char*) lo_memory_nid, // nid of lower bounds on addresses in memory
-        (char*) address_nid);  // nid of $rs1 + imm
-
-      // if this instruction is active set lower bound on $rd = lower-bounds memory[$rs1 + imm]
-      printf4("%d ite 2 %d %d %d\n",
-        (char*) (current_nid + 1),                // nid of this line
-        (char*) pc_nid(pcs_nid, pc),              // nid of pc flag of this instruction
-        (char*) current_nid,                      // nid of lower-bounds memory[$rs1 + imm]
-        (char*) *(reg_flow_nids + LO_FLOW + rd)); // nid of most recent update of lower bound on $rd register
-
-      *(reg_flow_nids + LO_FLOW + rd) = current_nid + 1;
-
-      current_nid = current_nid + 2;
-
-      // read from upper-bounds memory[$rs1 + imm] into upper bound on $rd register
-      printf3("%d read 2 %d %d\n",
-        (char*) current_nid,   // nid of this line
-        (char*) up_memory_nid, // nid of upper bounds on addresses in memory
-        (char*) address_nid);  // nid of $rs1 + imm
-
-      // if this instruction is active set upper bound on $rd = upper-bounds memory[$rs1 + imm]
-      printf4("%d ite 2 %d %d %d\n",
-        (char*) (current_nid + 1),                // nid of this line
-        (char*) pc_nid(pcs_nid, pc),              // nid of pc flag of this instruction
-        (char*) current_nid,                      // nid of upper-bounds memory[$rs1 + imm]
-        (char*) *(reg_flow_nids + UP_FLOW + rd)); // nid of most recent update of upper bound on $rd register
-
-      *(reg_flow_nids + UP_FLOW + rd) = current_nid + 1;
-
-      current_nid = current_nid + 2;
-    }
-
-    // read from memory[$rs1 + imm] into $rd register
-    printf3("%d read 2 %d %d\n",
-      (char*) current_nid,  // nid of this line
-      (char*) memory_nid,   // nid of memory
-      (char*) address_nid); // nid of $rs1 + imm
-
-    // if this instruction is active set $rd = memory[$rs1 + imm]
-    printf4("%d ite 2 %d %d %d ; ",
-      (char*) (current_nid + 1),      // nid of this line
-      (char*) pc_nid(pcs_nid, pc),    // nid of pc flag of this instruction
-      (char*) current_nid,            // nid of memory[$rs1 + imm]
-      (char*) *(reg_flow_nids + rd)); // nid of most recent update of $rd register
-
-    *(reg_flow_nids + rd) = current_nid + 1;
-
-    print_ld();println();
-  }
-
-  go_to_instruction(is, REG_ZR, pc, pc + INSTRUCTIONSIZE, 0);
-}
-
-void model_sd() {
-  uint64_t address_nid;
-
-  current_nid = current_nid + record_start_bounds(0, pc_nid(pcs_nid, pc), rs1);
-
-  address_nid = compute_address();
-
-  // if this instruction is active record $rs1 + imm for checking address validity
-  printf4("%d ite 2 %d %d %d\n",
-    (char*) current_nid,            // nid of this line
-    (char*) pc_nid(pcs_nid, pc),    // nid of pc flag of this instruction
-    (char*) address_nid,            // nid of $rs1 + imm
-    (char*) access_flow_start_nid); // nid of address of most recent memory access
-
-  access_flow_start_nid = current_nid;
-
-  current_nid = current_nid + 1;
-
-  if (check_block_access) {
-    // write lower bound on $rs2 register to lower-bounds memory[$rs1 + imm]
-    printf4("%d write 3 %d %d %d\n",
-      (char*) current_nid,                 // nid of this line
-      (char*) lo_memory_nid,               // nid of lower bounds on addresses in memory
-      (char*) address_nid,                 // nid of $rs1 + imm
-      (char*) (reg_nids + LO_FLOW + rs2)); // nid of lower bound on $rs2 register
-
-    // if this instruction is active set lower-bounds memory[$rs1 + imm] = lower bound on $rs2
-    printf4("%d ite 3 %d %d %d\n",
-      (char*) (current_nid + 1),   // nid of this line
-      (char*) pc_nid(pcs_nid, pc), // nid of pc flag of this instruction
-      (char*) current_nid,         // nid of lower-bounds memory[$rs1 + imm]
-      (char*) lo_memory_flow_nid); // nid of most recent update of lower-bounds memory
-
-    lo_memory_flow_nid = current_nid + 1;
-
-    current_nid = current_nid + 2;
-
-    // write upper bound on $rs2 register to upper-bounds memory[$rs1 + imm]
-    printf4("%d write 3 %d %d %d\n",
-      (char*) current_nid,                 // nid of this line
-      (char*) up_memory_nid,               // nid of upper bounds on addresses in memory
-      (char*) address_nid,                 // nid of $rs1 + imm
-      (char*) (reg_nids + UP_FLOW + rs2)); // nid of upper bound on $rs2 register
-
-    // if this instruction is active set upper-bounds memory[$rs1 + imm] = upper bound on $rs2
-    printf4("%d ite 3 %d %d %d\n",
-      (char*) (current_nid + 1),   // nid of this line
-      (char*) pc_nid(pcs_nid, pc), // nid of pc flag of this instruction
-      (char*) current_nid,         // nid of upper-bounds memory[$rs1 + imm]
-      (char*) up_memory_flow_nid); // nid of most recent update of upper-bounds memory
-
-    up_memory_flow_nid = current_nid + 1;
-
-    current_nid = current_nid + 2;
-  }
-
-  // write $rs2 register to memory[$rs1 + imm]
-  printf4("%d write 3 %d %d %d\n",
-    (char*) current_nid,       // nid of this line
-    (char*) memory_nid,        // nid of memory
-    (char*) address_nid,       // nid of $rs1 + imm
-    (char*) (reg_nids + rs2)); // nid of current value of $rs2 register
-
-  // if this instruction is active set memory[$rs1 + imm] = $rs2
-  printf4("%d ite 3 %d %d %d ; ",
-    (char*) (current_nid + 1),   // nid of this line
-    (char*) pc_nid(pcs_nid, pc), // nid of pc flag of this instruction
-    (char*) current_nid,         // nid of memory[$rs1 + imm] = $rs2
-    (char*) memory_flow_nid);    // nid of most recent update of memory
-
-  memory_flow_nid = current_nid + 1;
-
-  print_sd();println();
-
-  go_to_instruction(is, REG_ZR, pc, pc + INSTRUCTIONSIZE, 0);
-}
-
-void model_beq() {
-  // compute if beq condition is true
-  printf3("%d eq 1 %d %d ; ",
-    (char*) current_nid,       // nid of this line
-    (char*) (reg_nids + rs1),  // nid of current value of $rs1 register
-    (char*) (reg_nids + rs2)); // nid of current value of $rs2 register
-
-  print_beq();println();
-
-  // true branch
-  go_to_instruction(is, REG_ZR, pc, pc + imm, current_nid);
-
-  // compute if beq condition is false
-  printf2("%d not 1 %d\n",
-    (char*) current_nid + 1, // nid of this line
-    (char*) current_nid);    // nid of preceding line
-
-  // false branch
-  go_to_instruction(is, REG_ZR, pc, pc + INSTRUCTIONSIZE, current_nid + 1);
-}
-
-void model_jal() {
-  if (rd != REG_ZR) {
-    // address of next instruction used here and in returning jalr instruction
-    printf3("%d constd 2 %d ; %x\n",
-      (char*) current_nid,             // nid of this line
-      (char*) (pc + INSTRUCTIONSIZE),  // address of next instruction
-      (char*) (pc + INSTRUCTIONSIZE)); // address of next instruction
-
-    // if this instruction is active link $rd register to address of next instruction
-    printf4("%d ite 2 %d %d %d ; ",
-      (char*) (current_nid + 1),      // nid of this line
-      (char*) pc_nid(pcs_nid, pc),    // nid of pc flag of this jal instruction
-      (char*) current_nid,            // nid of address of next instruction
-      (char*) *(reg_flow_nids + rd)); // nid of most recent update of $rd register
-
-    *(reg_flow_nids + rd) = current_nid + 1;
-
-    print_jal();println();
-
-    // link next instruction to returning jalr instruction via instruction at address pc + imm
-    go_to_instruction(JALR, REG_ZR, pc + imm, pc + INSTRUCTIONSIZE, current_nid);
-  }
-
-  // jump from this instruction to instruction at address pc + imm
-  go_to_instruction(is, rd, pc, pc + imm, 0);
-}
-
-void model_jalr() {
-  if (rd == REG_ZR)
-    if (imm == 0)
-      if (rs1 == REG_RA)
-        if (pc >= estimated_return)
-          // no forward branches and jumps outside of "procedure body"
-          if (current_callee > entry_point) {
-            // assert: current_callee points to an instruction to which a jal jumps
-            *(call_return + (current_callee - entry_point) / INSTRUCTIONSIZE) = pc;
-
-            // assert: next "procedure body" begins right after jalr
-            current_callee = pc + INSTRUCTIONSIZE;
-
-            estimated_return = current_callee;
-
-            return;
-          }
-
-  //report the error on the console
-  output_fd = 1;
-
-  printf3("%s: unsupported jalr at address %x with estimated address %x detected\n", selfie_name, (char*) pc, (char*) estimated_return);
-
-  exit(EXITCODE_MODELCHECKINGERROR);
-}
-
-void model_ecall() {
-  if (reg_a7 == SYSCALL_EXIT) {
-    // assert: exit ecall is immediately followed by first procedure in code
-    current_callee = pc + INSTRUCTIONSIZE;
-
-    estimated_return = current_callee;
-  }
-
-  reg_a7 = 0;
-
-  // keep track of whether any ecall is active
-  printf3("%d ite 1 %d 11 %d ; ",
-    (char*) current_nid,         // nid of this line
-    (char*) pc_nid(pcs_nid, pc), // nid of pc flag of this instruction
-    (char*) ecall_flow_nid);     // nid of most recent update of ecall activation
-
-  ecall_flow_nid = current_nid;
-
-  print_ecall();println();
-
-  go_to_instruction(is, REG_ZR, pc, pc + INSTRUCTIONSIZE, 0);
-}
-
-void translate_to_model() {
-  // assert: 1 <= is <= number of RISC-U instructions
-  if (is == ADDI)
-    model_addi();
-  else if (is == LD)
-    model_ld();
-  else if (is == SD)
-    model_sd();
-  else if (is == ADD)
-    model_add();
-  else if (is == SUB)
-    model_sub();
-  else if (is == MUL)
-    model_mul();
-  else if (is == DIVU)
-    model_divu();
-  else if (is == REMU)
-    model_remu();
-  else if (is == SLTU)
-    model_sltu();
-  else if (is == BEQ)
-    model_beq();
-  else if (is == JAL)
-    model_jal();
-  else if (is == JALR)
-    model_jalr();
-  else if (is == LUI)
-    model_lui();
-  else if (is == ECALL)
-    model_ecall();
-}
-
-void model_syscalls() {
-  uint64_t kernel_mode_flow_nid;
-
-  printf2("%d constd 2 %d ; SYSCALL_EXIT\n", (char*) current_nid, (char*) SYSCALL_EXIT);
-  printf2("%d constd 2 %d ; SYSCALL_READ\n", (char*) (current_nid + 1), (char*) SYSCALL_READ);
-  printf2("%d constd 2 %d ; SYSCALL_WRITE\n", (char*) (current_nid + 2), (char*) SYSCALL_WRITE);
-  printf2("%d constd 2 %d ; SYSCALL_OPENAT\n", (char*) (current_nid + 3), (char*) SYSCALL_OPENAT);
-  printf2("%d constd 2 %d ; SYSCALL_BRK\n\n", (char*) (current_nid + 4), (char*) SYSCALL_BRK);
-
-  printf3("%d eq 1 %d %d ; $a7 == SYSCALL_EXIT\n",
-    (char*) (current_nid + 10),  // nid of this line
-    (char*) (reg_nids + REG_A7), // nid of current value of $a7 register
-    (char*) current_nid);        // nid of SYSCALL_EXIT
-  printf3("%d eq 1 %d %d ; $a7 == SYSCALL_READ\n",
-    (char*) (current_nid + 11),  // nid of this line
-    (char*) (reg_nids + REG_A7), // nid of current value of $a7 register
-    (char*) (current_nid + 1));  // nid of SYSCALL_READ
-  printf3("%d eq 1 %d %d ; $a7 == SYSCALL_WRITE\n",
-    (char*) (current_nid + 12),  // nid of this line
-    (char*) (reg_nids + REG_A7), // nid of current value of $a7 register
-    (char*) (current_nid + 2));  // nid of SYSCALL_WRITE
-  printf3("%d eq 1 %d %d ; $a7 == SYSCALL_OPENAT\n",
-    (char*) (current_nid + 13),  // nid of this line
-    (char*) (reg_nids + REG_A7), // nid of current value of $a7 register
-    (char*) (current_nid + 3));  // nid of SYSCALL_OPENAT
-  printf3("%d eq 1 %d %d ; $a7 == SYSCALL_BRK\n\n",
-    (char*) (current_nid + 14),  // nid of this line
-    (char*) (reg_nids + REG_A7), // nid of current value of $a7 register
-    (char*) (current_nid + 4));  // nid of SYSCALL_BRK
-
-  printf2("%d not 1 %d ; $a7 != SYSCALL_EXIT\n",
-    (char*) (current_nid + 20),  // nid of this line
-    (char*) (current_nid + 10)); // nid of $a7 == SYSCALL_EXIT
-  printf3("%d ite 1 %d 10 %d ; ... and $a7 != SYSCALL_READ\n",
-    (char*) (current_nid + 21),  // nid of this line
-    (char*) (current_nid + 11),  // nid of $a7 == SYSCALL_READ
-    (char*) (current_nid + 20)); // nid of preceding line
-  printf3("%d ite 1 %d 10 %d ; ... and $a7 != SYSCALL_WRITE\n",
-    (char*) (current_nid + 22),  // nid of this line
-    (char*) (current_nid + 12),  // nid of $a7 == SYSCALL_WRITE
-    (char*) (current_nid + 21)); // nid of preceding line
-  printf3("%d ite 1 %d 10 %d ; ... and $a7 != SYSCALL_OPENAT\n",
-    (char*) (current_nid + 23),  // nid of this line
-    (char*) (current_nid + 13),  // nid of $a7 == SYSCALL_OPENAT
-    (char*) (current_nid + 22)); // nid of preceding line
-  printf3("%d ite 1 %d 10 %d ; ... and $a7 != SYSCALL_BRK (invalid syscall id in $a7 detected)\n\n",
-    (char*) (current_nid + 24),  // nid of this line
-    (char*) (current_nid + 14),  // nid of $a7 == SYSCALL_BRK
-    (char*) (current_nid + 23)); // nid of preceding line
-
-  // if any ecall is active check if $a7 register contains invalid syscall id
-  printf3("%d and 1 %d %d ; ecall is active for invalid syscall id\n",
-    (char*) (current_nid + 30),  // nid of this line
-    (char*) ecall_flow_nid,      // nid of most recent update of ecall activation
-    (char*) (current_nid + 24)); // nid of invalid syscall id check
-  printf2("%d bad %d ; ecall invalid syscall id\n\n",
-    (char*) (current_nid + 31),  // nid of this line
-    (char*) (current_nid + 30)); // nid of preceding line
-
-
-  // if exit ecall is active check if exit code in $a0 register is not 0
-  printf3("%d and 1 %d %d ; exit ecall is active\n",
-    (char*) (current_nid + 1000), // nid of this line
-    (char*) ecall_flow_nid,       // nid of most recent update of ecall activation
-    (char*) (current_nid + 10));  // nid of $a7 == SYSCALL_EXIT
-  if (bad_exit_code == 0)
-    printf2("%d neq 1 %d 20 ; $a0 != zero exit code\n",
-      (char*) (current_nid + 1002), // nid of this line
-      (char*) (reg_nids + REG_A0)); // nid of current value of $a0 register
-  else {
-    printf2("%d constd 2 %d ; bad exit code\n",
-      (char*) (current_nid + 1001), // nid of this line
-      (char*) bad_exit_code);       // value of bad exit code
-    printf3("%d eq 1 %d %d ; $a0 == bad non-zero exit code\n",
-      (char*) (current_nid + 1002),  // nid of this line
-      (char*) (reg_nids + REG_A0),   // nid of current value of $a0 register
-      (char*) (current_nid + 1001)); // nid of value of bad non-zero exit code
-  }
-  printf3("%d and 1 %d %d ; exit ecall is active with non-zero exit code\n",
-    (char*) (current_nid + 1003),  // nid of this line
-    (char*) (current_nid + 1000),  // nid of exit ecall is active
-    (char*) (current_nid + 1002)); // nid of non-zero exit code
-  printf2("%d bad %d ; non-zero exit code\n",
-    (char*) (current_nid + 1004),  // nid of this line
-    (char*) (current_nid + 1003)); // nid of preceding line
-
-  // if exit ecall is active stay in kernel mode indefinitely
-  printf3("%d ite 1 60 %d %d ; stay in kernel mode indefinitely if exit ecall is active\n\n",
-    (char*) (current_nid + 1050),  // nid of this line
-    (char*) (current_nid + 10),    // nid of $a7 == SYSCALL_EXIT
-    (char*) (current_nid + 1000)); // nid of exit ecall is active
-
-  kernel_mode_flow_nid = current_nid + 1050;
-
-
-  // read ecall
-  printf3("%d and 1 %d %d ; read ecall is active\n",
-    (char*) (current_nid + 1100), // nid of this line
-    (char*) ecall_flow_nid,       // nid of most recent update of ecall activation
-    (char*) (current_nid + 11));  // nid of $a7 == SYSCALL_READ
-
-  // if read ecall is active record $a1 register for checking address validity
-  printf4("%d ite 2 %d %d %d ; $a1 is start address of write buffer for checking address validity\n",
-    (char*) (current_nid + 1101),   // nid of this line
-    (char*) (current_nid + 1100),   // nid of read ecall is active
-    (char*) (reg_nids + REG_A1),    // nid of current value of $a1 register
-    (char*) access_flow_start_nid); // nid of address of most recent memory access
-
-  access_flow_start_nid = current_nid + 1101;
-
-  // if read ecall is active record $a1 + (($a2 - 1) / 8) * 8 if $a2 > 0, and
-  // $a1 otherwise, as address for checking address validity
-  printf2("%d dec 2 %d ; $a2 - 1\n",
-    (char*) (current_nid + 1102), // nid of this line
-    (char*) (reg_nids + REG_A2)); // nid of current value of $a2 register
-  printf1("%d not 2 27 ; not 7\n",
-    (char*) (current_nid + 1103)); // nid of this line
-  printf3("%d and 2 %d %d ; reset 3 LSBs of $a2 - 1\n",
-    (char*) (current_nid + 1104),  // nid of this line
-    (char*) (current_nid + 1102),  // nid of $a2 - 1
-    (char*) (current_nid + 1103)); // nid of not 7
-  printf3("%d add 2 %d %d ; $a1 + (($a2 - 1) / 8) * 8\n",
-    (char*) (current_nid + 1105),  // nid of this line
-    (char*) (reg_nids + REG_A1),   // nid of current value of $a1 register
-    (char*) (current_nid + 1104)); // nid of (($a2 - 1) / 8) * 8
-  printf2("%d ugt 1 %d 20 ; $a2 > 0\n",
-    (char*) (current_nid + 1106), // nid of this line
-    (char*) (reg_nids + REG_A2)); // nid of current value of $a2 register
-  printf4("%d ite 2 %d %d %d ; $a1 + (($a2 - 1) / 8) * 8 if $a2 > 0, and $a1 otherwise\n",
-    (char*) (current_nid + 1107), // nid of this line
-    (char*) (current_nid + 1106), // nid of $a2 > 0
-    (char*) (current_nid + 1105), // nid of $a1 + (($a2 - 1) / 8) * 8
-    (char*) (reg_nids + REG_A1)); // nid of current value of $a1 register
-  printf4("%d ite 2 %d %d %d ; $a1 + (($a2 - 1) / 8) * 8 is end address of write buffer for checking address validity\n",
-    (char*) (current_nid + 1108), // nid of this line
-    (char*) (current_nid + 1100), // nid of read ecall is active
-    (char*) (current_nid + 1107), // nid of $a1 + (($a2 - 1) / 8) * 8 if $a2 > 0, and $a1 otherwise
-    (char*) access_flow_end_nid); // nid of address of most recent memory access
-
-  access_flow_end_nid = current_nid + 1108;
-
-  // if read ecall is active record $a1 bounds for checking address validity
-  record_end_bounds(record_start_bounds(1109, current_nid + 1100, REG_A1), current_nid + 1100, REG_A1);
-
-  // TODO: check file descriptor validity, return error codes
-
-  // if read ecall is active go into kernel mode
-  printf3("%d ite 1 %d 11 %d ; go into kernel mode if read ecall is active\n",
-    (char*) (current_nid + 1150),  // nid of this line
-    (char*) (current_nid + 1100),  // nid of read ecall is active
-    (char*) kernel_mode_flow_nid); // nid of most recent update of kernel-mode flag
-
-  kernel_mode_flow_nid = current_nid + 1150;
-
-  // if read ecall is active set $a0 (number of read bytes) = 0 bytes
-  printf3("%d ite 2 %d 20 %d ; set $a0 = 0 bytes if read ecall is active\n",
-    (char*) (current_nid + 1151),       // nid of this line
-    (char*) (current_nid + 1100),       // nid of read ecall is active
-    (char*) *(reg_flow_nids + REG_A0)); // nid of most recent update of $a0 register
-
-  *(reg_flow_nids + REG_A0) = current_nid + 1151;
-
-  // determine number of bytes to read in next step
-  printf3("%d sub 2 %d %d ; $a2 - $a0\n",
-    (char*) (current_nid + 1160), // nid of this line
-    (char*) (reg_nids + REG_A2),  // nid of current value of $a2 register
-    (char*) (reg_nids + REG_A0)); // nid of current value of $a0 register
-  printf2("%d ugte 1 %d 28 ; $a2 - $a0 >= 8 bytes\n",
-    (char*) (current_nid + 1161),  // nid of this line
-    (char*) (current_nid + 1160)); // nid of $a2 - $a0
-  printf3("%d ite 2 %d 28 %d ; read 8 bytes if $a2 - $a0 >= 8 bytes, or else $a2 - $a0 bytes\n",
-    (char*) (current_nid + 1162),  // nid of this line
-    (char*) (current_nid + 1161),  // nid of $a2 - $a0 >= 8 bytes
-    (char*) (current_nid + 1160)); // nid of $a2 - $a0
-
-  // compute unsigned-extended input
-  printf2("%d eq 1 %d 22 ; increment == 2\n",
-    (char*) (current_nid + 1170),  // nid of this line
-    (char*) (current_nid + 1162)); // nid of increment
-  printf2("%d ite 2 %d 92 91 ; unsigned-extended 2-byte input if increment == 2, or else unsigned-extended 1-byte input\n",
-    (char*) (current_nid + 1171),  // nid of this line
-    (char*) (current_nid + 1170)); // nid of increment == 2
-  printf2("%d eq 1 %d 23 ; increment == 3\n",
-    (char*) (current_nid + 1172),  // nid of this line
-    (char*) (current_nid + 1162)); // nid of increment
-  printf3("%d ite 2 %d 93 %d ; unsigned-extended 3-byte input if increment == 3\n",
-    (char*) (current_nid + 1173),  // nid of this line
-    (char*) (current_nid + 1172),  // nid of increment == 3
-    (char*) (current_nid + 1171)); // nid of unsigned-extended 2-byte input
-  printf2("%d eq 1 %d 24 ; increment == 4\n",
-    (char*) (current_nid + 1174),  // nid of this line
-    (char*) (current_nid + 1162)); // nid of increment
-  printf3("%d ite 2 %d 94 %d ; unsigned-extended 4-byte input if increment == 4\n",
-    (char*) (current_nid + 1175),  // nid of this line
-    (char*) (current_nid + 1174),  // nid of increment == 4
-    (char*) (current_nid + 1173)); // nid of unsigned-extended 3-byte input
-  printf2("%d eq 1 %d 25 ; increment == 5\n",
-    (char*) (current_nid + 1176),  // nid of this line
-    (char*) (current_nid + 1162)); // nid of increment
-  printf3("%d ite 2 %d 95 %d ; unsigned-extended 5-byte input if increment == 5\n",
-    (char*) (current_nid + 1177),  // nid of this line
-    (char*) (current_nid + 1176),  // nid of increment == 5
-    (char*) (current_nid + 1175)); // nid of unsigned-extended 4-byte input
-  printf2("%d eq 1 %d 26 ; increment == 6\n",
-    (char*) (current_nid + 1178),  // nid of this line
-    (char*) (current_nid + 1162)); // nid of increment
-  printf3("%d ite 2 %d 96 %d ; unsigned-extended 6-byte input if increment == 6\n",
-    (char*) (current_nid + 1179),  // nid of this line
-    (char*) (current_nid + 1178),  // nid of increment == 6
-    (char*) (current_nid + 1177)); // nid of unsigned-extended 5-byte input
-  printf2("%d eq 1 %d 27 ; increment == 7\n",
-    (char*) (current_nid + 1180),  // nid of this line
-    (char*) (current_nid + 1162)); // nid of increment
-  printf3("%d ite 2 %d 97 %d ; unsigned-extended 7-byte input if increment == 7\n",
-    (char*) (current_nid + 1181),  // nid of this line
-    (char*) (current_nid + 1180),  // nid of increment == 7
-    (char*) (current_nid + 1179)); // nid of unsigned-extended 6-byte input
-  printf2("%d eq 1 %d 28 ; increment == 8\n",
-    (char*) (current_nid + 1182),  // nid of this line
-    (char*) (current_nid + 1162)); // nid of increment
-  printf3("%d ite 2 %d 98 %d ; 8-byte input if increment == 8\n",
-    (char*) (current_nid + 1183),  // nid of this line
-    (char*) (current_nid + 1182),  // nid of increment == 8
-    (char*) (current_nid + 1181)); // nid of unsigned-extended 7-byte input
-
-  // write input to memory at address $a1 + $a0
-  printf3("%d add 2 %d %d ; $a1 + $a0\n",
-    (char*) (current_nid + 1184), // nid of this line
-    (char*) (reg_nids + REG_A1),  // nid of current value of $a1 register
-    (char*) (reg_nids + REG_A0)); // nid of current value of $a0 register
-  printf4("%d write 3 %d %d %d ; memory[$a1 + $a0] = input\n",
-    (char*) (current_nid + 1185),  // nid of this line
-    (char*) memory_nid,            // nid of memory
-    (char*) (current_nid + 1184),  // nid of $a1 + $a0
-    (char*) (current_nid + 1183)); // nid of input
-
-  // read ecall is in kernel mode and not done yet
-  printf3("%d ult 1 %d %d ; $a0 < $a2\n",
-    (char*) (current_nid + 1190), // nid of this line
-    (char*) (reg_nids + REG_A0),  // nid of current value of $a0 register
-    (char*) (reg_nids + REG_A2)); // nid of current value of $a2 register
-  printf3("%d and 1 %d %d ; $a7 == SYSCALL_READ and $a0 < $a2\n",
-    (char*) (current_nid + 1191),  // nid of this line
-    (char*) (current_nid + 11),    // nid of $a7 == SYSCALL_READ
-    (char*) (current_nid + 1190)); // nid of $a0 < $a2
-  printf2("%d and 1 60 %d ; read ecall is in kernel mode and not done yet\n",
-    (char*) (current_nid + 1192),  // nid of this line
-    (char*) (current_nid + 1191)); // nid of $a7 == SYSCALL_READ and $a0 < $a2
-
-  // if read ecall is in kernel mode and not done yet write input to memory at address $a1 + $a0
-  printf2("%d ugt 1 %d 20 ; increment > 0\n",
-    (char*) (current_nid + 1193),  // nid of this line
-    (char*) (current_nid + 1162)); // nid of increment
-  printf3("%d and 1 %d %d ; read ecall is in kernel mode and not done yet and increment > 0\n",
-    (char*) (current_nid + 1194),  // nid of this line
-    (char*) (current_nid + 1192),  // nid of read ecall is in kernel mode and not done yet
-    (char*) (current_nid + 1193)); // nid of increment > 0
-  printf4("%d ite 3 %d %d %d ; set memory[$a1 + $a0] = input if read ecall is in kernel mode and not done yet and increment > 0\n",
-    (char*) (current_nid + 1195), // nid of this line
-    (char*) (current_nid + 1194), // nid of read ecall is in kernel mode and not done yet and increment > 0
-    (char*) (current_nid + 1185), // nid of memory[$a1 + $a0] = input
-    (char*) memory_flow_nid);     // nid of most recent update of memory
-
-  memory_flow_nid = current_nid + 1195;
-
-  // if read ecall is in kernel mode and not done yet increment number of bytes read
-  printf3("%d add 2 %d %d ; $a0 + increment\n",
-    (char*) (current_nid + 1196),  // nid of this line
-    (char*) (reg_nids + REG_A0),   // nid of current value of $a0 register
-    (char*) (current_nid + 1162)); // nid of increment
-  printf4("%d ite 2 %d %d %d ; set $a0 = $a0 + increment if read ecall is in kernel mode and not done yet\n",
-    (char*) (current_nid + 1197),       // nid of this line
-    (char*) (current_nid + 1192),       // nid of read ecall is in kernel mode and not done yet
-    (char*) (current_nid + 1196),       // nid of $a0 + increment
-    (char*) *(reg_flow_nids + REG_A0)); // nid of most recent update of $a0 register
-
-  *(reg_flow_nids + REG_A0) = current_nid + 1197;
-
-  // if read ecall is in kernel mode and not done yet stay in kernel mode
-  printf3("%d ite 1 %d 11 %d ; stay in kernel mode if read ecall is in kernel mode and not done yet\n\n",
-    (char*) (current_nid + 1198),  // nid of this line
-    (char*) (current_nid + 1192),  // nid of read ecall is in kernel mode and not done yet
-    (char*) kernel_mode_flow_nid); // nid of most recent update of kernel-mode flag
-
-  kernel_mode_flow_nid = current_nid + 1198;
-
-
-  // write ecall
-  printf3("%d and 1 %d %d ; write ecall is active\n",
-    (char*) (current_nid + 1200), // nid of this line
-    (char*) ecall_flow_nid,       // nid of most recent update of ecall activation
-    (char*) (current_nid + 12));  // nid of $a7 == SYSCALL_WRITE
-
-  // if write ecall is active record $a1 register for checking address validity
-  printf4("%d ite 2 %d %d %d ; $a1 is start address of read buffer for checking address validity\n",
-    (char*) (current_nid + 1201),   // nid of this line
-    (char*) (current_nid + 1200),   // nid of write ecall is active
-    (char*) (reg_nids + REG_A1),    // nid of current value of $a1 register
-    (char*) access_flow_start_nid); // nid of address of most recent memory access
-
-  access_flow_start_nid = current_nid + 1201;
-
-  // if write ecall is active record $a1 + (($a2 - 1) / 8) * 8 if $a2 > 0, and
-  // $a1 otherwise, as address for checking address validity
-  printf2("%d dec 2 %d ; $a2 - 1\n",
-    (char*) (current_nid + 1202), // nid of this line
-    (char*) (reg_nids + REG_A2)); // nid of current value of $a2 register
-  printf1("%d not 2 27 ; not 7\n",
-    (char*) (current_nid + 1203)); // nid of this line
-  printf3("%d and 2 %d %d ; reset 3 LSBs of $a2 - 1\n",
-    (char*) (current_nid + 1204),  // nid of this line
-    (char*) (current_nid + 1202),  // nid of $a2 - 1
-    (char*) (current_nid + 1203)); // nid of not 7
-  printf3("%d add 2 %d %d ; $a1 + (($a2 - 1) / 8) * 8\n",
-    (char*) (current_nid + 1205),  // nid of this line
-    (char*) (reg_nids + REG_A1),   // nid of current value of $a1 register
-    (char*) (current_nid + 1204)); // nid of (($a2 - 1) / 8) * 8
-  printf2("%d ugt 1 %d 20 ; $a2 > 0\n",
-    (char*) (current_nid + 1206), // nid of this line
-    (char*) (reg_nids + REG_A2)); // nid of current value of $a2 register
-  printf4("%d ite 2 %d %d %d ; $a1 + (($a2 - 1) / 8) * 8 if $a2 > 0, and $a1 otherwise\n",
-    (char*) (current_nid + 1207), // nid of this line
-    (char*) (current_nid + 1206), // nid of $a2 > 0
-    (char*) (current_nid + 1205), // nid of $a1 + (($a2 - 1) / 8) * 8
-    (char*) (reg_nids + REG_A1)); // nid of current value of $a1 register
-  printf4("%d ite 2 %d %d %d ; $a1 + (($a2 - 1) / 8) * 8 is end address of read buffer for checking address validity\n",
-    (char*) (current_nid + 1208), // nid of this line
-    (char*) (current_nid + 1200), // nid of write ecall is active
-    (char*) (current_nid + 1207), // nid of $a1 + (($a2 - 1) / 8) * 8 if $a2 > 0, and $a1 otherwise
-    (char*) access_flow_end_nid); // nid of address of most recent memory access
-
-  access_flow_end_nid = current_nid + 1208;
-
-  // if write ecall is active record $a1 bounds for checking address validity
-  record_end_bounds(record_start_bounds(1209, current_nid + 1200, REG_A1), current_nid + 1200, REG_A1);
-
-  // TODO: check file descriptor validity, return error codes
-
-  // if write ecall is active set $a0 (written number of bytes) = $a2 (size)
-  printf4("%d ite 2 %d %d %d ; set $a0 = $a2 if write ecall is active\n\n",
-    (char*) (current_nid + 1250),       // nid of this line
-    (char*) (current_nid + 1200),       // nid of write ecall is active
-    (char*) (reg_nids + REG_A2),        // nid of current value of $a2 register
-    (char*) *(reg_flow_nids + REG_A0)); // nid of most recent update of $a0 register
-
-  *(reg_flow_nids + REG_A0) = current_nid + 1250;
-
-
-  // openat ecall
-  printf3("%d and 1 %d %d ; openat ecall is active\n",
-    (char*) (current_nid + 1300), // nid of this line
-    (char*) ecall_flow_nid,       // nid of most recent update of ecall activation
-    (char*) (current_nid + 13));  // nid of $a7 == SYSCALL_OPENAT
-
-  // if openat ecall is active record $a1 register for checking address validity
-  printf4("%d ite 2 %d %d %d ; $a1 is start address of filename for checking address validity\n",
-    (char*) (current_nid + 1301),   // nid of this line
-    (char*) (current_nid + 1300),   // nid of openat ecall is active
-    (char*) (reg_nids + REG_A1),    // nid of current value of $a1 register
-    (char*) access_flow_start_nid); // nid of address of most recent memory access
-
-  access_flow_start_nid = current_nid + 1301;
-
-  // if openat ecall is active record $a1 bounds for checking address validity
-  record_start_bounds(1302, current_nid + 1300, REG_A1);
-
-  // TODO: check address validity of whole filename, flags and mode arguments
-
-  printf1("%d state 2 fd-bump\n", (char*) (current_nid + 1350));
-  printf2("%d init 2 %d 21 ; initial fd-bump is 1 (file descriptor bump pointer)\n",
-    (char*) (current_nid + 1351),  // nid of this line
-    (char*) (current_nid + 1350)); // nid of fd-bump
-
-  // if openat ecall is active set $a0 (file descriptor) = fd-bump + 1 (next file descriptor)
-  printf2("%d inc 2 %d\n",
-    (char*) (current_nid + 1352),  // nid of this line
-    (char*) (current_nid + 1350)); // nid of fd-bump
-  printf4("%d ite 2 %d %d %d ; fd-bump + 1 if openat ecall is active\n",
-    (char*) (current_nid + 1353),  // nid of this line
-    (char*) (current_nid + 1300),  // nid of openat ecall is active
-    (char*) (current_nid + 1352),  // nid of fd-bump + 1
-    (char*) (current_nid + 1350)); // nid of fd-bump
-  printf3("%d next 2 %d %d ; increment fd-bump if openat ecall is active\n",
-    (char*) (current_nid + 1354),  // nid of this line
-    (char*) (current_nid + 1350),  // nid of fd-bump
-    (char*) (current_nid + 1353)); // nid of fd-bump + 1
-  printf4("%d ite 2 %d %d %d ; set $a0 = fd-bump + 1 if openat ecall is active\n\n",
-    (char*) (current_nid + 1355),       // nid of this line
-    (char*) (current_nid + 1300),       // nid of openat ecall is active
-    (char*) (current_nid + 1352),       // nid of fd-bump + 1
-    (char*) *(reg_flow_nids + REG_A0)); // nid of most recent update of $a0 register
-
-  *(reg_flow_nids + REG_A0) = current_nid + 1355;
-
-
-  // is brk ecall is active?
-  printf3("%d and 1 %d %d ; brk ecall is active\n",
-    (char*) (current_nid + 1400), // nid of this line
-    (char*) ecall_flow_nid,       // nid of most recent update of ecall activation
-    (char*) (current_nid + 14));  // nid of $a7 == SYSCALL_BRK
-
-  printf1("%d state 2 brk\n", (char*) (current_nid + 1450));
-  printf2("%d init 2 %d 31 ; original program break is end of binary\n",
-    (char*) (current_nid + 1451),  // nid of this line
-    (char*) (current_nid + 1450)); // nid of brk
-
-  // if brk ecall is active and $a0 is valid set brk = $a0
-  // $a0 is valid if brk <= $a0 < $sp and $a0 is word-aligned
-  printf3("%d ulte 1 %d %d ; brk <= $a0\n",
-    (char*) (current_nid + 1452), // nid of this line
-    (char*) (current_nid + 1450), // nid of brk
-    (char*) (reg_nids + REG_A0)); // nid of current value of $a0 register
-  printf3("%d ult 1 %d %d ; $a0 < $sp\n",
-    (char*) (current_nid + 1453), // nid of this line
-    (char*) (reg_nids + REG_A0),  // nid of current value of $a0 register
-    (char*) (reg_nids + REG_SP)); // nid of current value of $sp register
-  printf3("%d and 1 %d %d ; brk <= $a0 < $sp\n",
-    (char*) (current_nid + 1454),  // nid of this line
-    (char*) (current_nid + 1452),  // nid of brk <= $a0
-    (char*) (current_nid + 1453)); // nid of $a0 < $sp
-  printf2("%d and 2 %d 27 ; reset all but 3 LSBs of $a0\n",
-    (char*) (current_nid + 1455), // nid of this line
-    (char*) (reg_nids + REG_A0)); // nid of current value of $a0 register
-  printf2("%d eq 1 %d 20 ; 3 LSBs of $a0 == 0 ($a0 is word-aligned)\n",
-    (char*) (current_nid + 1456),  // nid of this line
-    (char*) (current_nid + 1455)); // nid of 3 LSBs of current value of $a0 register
-  printf3("%d and 1 %d %d ; brk <= $a0 < $sp and $a0 is word-aligned ($a0 is valid)\n",
-    (char*) (current_nid + 1457),  // nid of this line
-    (char*) (current_nid + 1454),  // nid of brk <= $a0 < $sp
-    (char*) (current_nid + 1456)); // nid of $a0 is word-aligned
-  printf3("%d and 1 %d %d ; brk ecall is active and $a0 is valid\n",
-    (char*) (current_nid + 1458),  // nid of this line
-    (char*) (current_nid + 1400),  // nid of brk ecall is active
-    (char*) (current_nid + 1457)); // nid of $a0 is valid
-  printf4("%d ite 2 %d %d %d ; brk = $a0 if brk ecall is active and $a0 is valid\n",
-    (char*) (current_nid + 1459),  // nid of this line
-    (char*) (current_nid + 1458),  // nid of brk ecall is active and $a0 is valid
-    (char*) (reg_nids + REG_A0),   // nid of current value of $a0 register
-    (char*) (current_nid + 1450)); // nid of brk
-  printf3("%d next 2 %d %d ; set brk = $a0 if brk ecall is active and $a0 is valid\n",
-    (char*) (current_nid + 1460),  // nid of this line
-    (char*) (current_nid + 1450),  // nid of brk
-    (char*) (current_nid + 1459)); // nid of preceding line
-
-  // if brk ecall is active and $a0 is invalid set $a0 = brk
-  printf2("%d not 1 %d ; $a0 is invalid\n",
-    (char*) (current_nid + 1461),  // nid of this line
-    (char*) (current_nid + 1457)); // nid of $a0 is valid
-  printf3("%d and 1 %d %d ; brk ecall is active and $a0 is invalid\n",
-    (char*) (current_nid + 1462),  // nid of this line
-    (char*) (current_nid + 1400),  // nid of brk ecall is active
-    (char*) (current_nid + 1461)); // nid of $a0 is invalid
-  printf4("%d ite 2 %d %d %d ; set $a0 = brk if brk ecall is active and $a0 is invalid\n",
-    (char*) (current_nid + 1463),       // nid of this line
-    (char*) (current_nid + 1462),       // nid of brk ecall is active and $a0 is invalid
-    (char*) (current_nid + 1450),       // nid of brk
-    (char*) *(reg_flow_nids + REG_A0)); // nid of most recent update of $a0 register
-
-  *(reg_flow_nids + REG_A0) = current_nid + 1463;
-
-  if (check_block_access) {
-    printf4("%d ite 2 %d %d %d ; lower bound on $t1 = brk if brk ecall is active and $a0 is valid\n",
-      (char*) (current_nid + 1464),                 // nid of this line
-      (char*) (current_nid + 1458),                 // nid of brk ecall is active and $a0 is valid
-      (char*) (current_nid + 1450),                 // nid of brk
-      (char*) *(reg_flow_nids + LO_FLOW + REG_T1)); // nid of most recent update of lower bound on $t1 register
-
-    *(reg_flow_nids + LO_FLOW + REG_T1) = current_nid + 1464;
-
-    printf4("%d ite 2 %d %d %d ; upper bound on $t1 = $a0 if brk ecall is active and $a0 is valid\n",
-      (char*) (current_nid + 1465),                 // nid of this line
-      (char*) (current_nid + 1458),                 // nid of brk ecall is active and $a0 is valid
-      (char*) (reg_nids + REG_A0),                  // nid of current value of $a0 register
-      (char*) *(reg_flow_nids + UP_FLOW + REG_T1)); // nid of most recent update of upper bound on $t1 register
-
-    *(reg_flow_nids + UP_FLOW + REG_T1) = current_nid + 1465;
-
-    printf3("%d ite 2 %d 30 %d ; lower bound on $t1 = end of code segment if brk ecall is active and $a0 is invalid\n",
-      (char*) (current_nid + 1466),                 // nid of this line
-      (char*) (current_nid + 1462),                 // nid of brk ecall is active and $a0 is invalid
-      (char*) *(reg_flow_nids + LO_FLOW + REG_T1)); // nid of most recent update of lower bound on $t1 register
-
-    *(reg_flow_nids + LO_FLOW + REG_T1) = current_nid + 1466;
-
-    printf3("%d ite 2 %d 50 %d ; upper bound on $t1 = 4GB of memory addresses if brk ecall is active and $a0 is invalid\n",
-      (char*) (current_nid + 1467),                 // nid of this line
-      (char*) (current_nid + 1462),                 // nid of brk ecall is active and $a0 is invalid
-      (char*) *(reg_flow_nids + UP_FLOW + REG_T1)); // nid of most recent update of upper bound on $t1 register
-
-    *(reg_flow_nids + UP_FLOW + REG_T1) = current_nid + 1467;
-  }
-
-  printf2("\n%d next 1 60 %d ; update kernel-mode flag\n",
-    (char*) (current_nid + 1500),  // nid of this line
-    (char*) kernel_mode_flow_nid); // nid of most recent update of kernel-mode flag
-}
-
-uint64_t control_flow(uint64_t activate_nid, uint64_t control_flow_nid) {
-  if (control_flow_nid == 10)
-    // instruction proceeding here is first instruction to do so
-    return activate_nid;
-  else {
-    // activate current instruction if instruction proceeding here is active
-    printf3("%d ite 1 %d 11 %d\n",
-      (char*) current_nid,       // nid of this line
-      (char*) activate_nid,      // nid of pc flag of instruction proceeding here
-      (char*) control_flow_nid); // nid of previously processed in-edge
-
-    current_nid = current_nid + 1;
-
-    return current_nid - 1;
-  }
-}
-
-void check_division_by_zero(uint64_t division, uint64_t flow_nid) {
-  // check if divisor == 0
-  printf2("%d eq 1 %d 20\n",
-    (char*) current_nid, // nid of this line
-    (char*) flow_nid);   // nid of divisor of most recent division or remainder
-  printf2("%d bad %d ; ",
-    (char*) (current_nid + 1), // nid of this line
-    (char*) current_nid);      // nid of divisor == 0
-  if (division)
-    print("division by zero\n\n");
-  else
-    print("remainder by zero\n\n");
-
-  current_nid = current_nid + 2;
-}
-
-void check_address_validity(uint64_t start, uint64_t flow_nid, uint64_t lo_flow_nid, uint64_t up_flow_nid) {
-  if (start)
-    print("; at start of memory block\n\n");
-  else
-    print("; at end of memory block\n\n");
-
-  // check if address of most recent memory access < current lower bound
-  printf3("%d ult 1 %d %d\n",
-    (char*) current_nid,  // nid of this line
-    (char*) flow_nid,     // nid of address of most recent memory access
-    (char*) lo_flow_nid); // nid of current lower bound on memory addresses
-  printf2("%d bad %d ; memory access below lower bound\n",
-    (char*) (current_nid + 1), // nid of this line
-    (char*) current_nid);      // nid of previous check
-
-  current_nid = current_nid + 2;
-
-  // check if address of most recent memory access >= current upper bound
-  printf3("%d ugte 1 %d %d\n",
-    (char*) current_nid,  // nid of this line
-    (char*) flow_nid,     // nid of address of most recent memory access
-    (char*) up_flow_nid); // nid of current upper bound on memory addresses
-  printf2("%d bad %d ; memory access at or above upper bound\n",
-    (char*) (current_nid + 1), // nid of this line
-    (char*) current_nid);      // nid of previous check
-
-  current_nid = current_nid + 2;
-
-  // check if address of most recent memory access is word-aligned
-  printf2("%d and 2 %d 27\n",
-    (char*) current_nid, // nid of this line
-    (char*) flow_nid);   // nid of address of most recent memory access
-  printf2("%d neq 1 %d 20\n",
-    (char*) (current_nid + 1), // nid of this line
-    (char*) current_nid);      // nid of 3 LSBs of address of most recent memory access
-  printf2("%d bad %d ; word-unaligned memory access\n\n",
-    (char*) (current_nid + 2),  // nid of this line
-    (char*) (current_nid + 1)); // nid of previous check
-
-  current_nid = current_nid + 3;
-}
-
-uint64_t selfie_model_generate() {
-  uint64_t i;
-
-  uint64_t machine_word;
-
-  uint64_t loader_nid;
-  uint64_t code_nid;
-  uint64_t control_nid;
-  uint64_t condition_nid;
-
-  uint64_t data_flow_nid;
-  uint64_t control_flow_nid;
-
-  uint64_t* in_edge;
-
-  uint64_t from_instruction;
-  uint64_t from_address;
-  uint64_t jalr_address;
-
-  // use extension ".btor2" in name of SMT-LIB file
-  model_name = replace_extension(binary_name, "btor2");
-
-  if (code_length == 0) {
-    printf2("%s: nothing to disassemble to output file %s\n", selfie_name, model_name);
-
-    return EXITCODE_BADARGUMENTS;
-  }
-
-  // assert: model_name is mapped and not longer than MAX_FILENAME_LENGTH
-
-  model_fd = open_write_only(model_name);
-
-  if (signed_less_than(model_fd, 0)) {
-    printf2("%s: could not create model output file %s\n", selfie_name, model_name);
-
-    return EXITCODE_IOERROR;
-  }
-
-  output_name = model_name;
-  output_fd   = model_fd;
-
-  reset_library();
-  reset_interpreter();
-  reset_microkernel();
-
-  init_memory(1);
-
-  bad_exit_code = atoi(peek_argument(0));
-
-  check_block_access = 0;
-
-  if (number_of_remaining_arguments() > 1)
-    if (string_compare(peek_argument(1), "--check-block-access")) {
-      check_block_access = 1;
-
-      get_argument();
-    }
-
-  boot_loader();
-
-  run = 0;
-
-  model_check = 1;
-
-  printf1("; %s\n\n", SELFIE_URL);
-
-  printf2("; BTOR2 %s generated by %s for\n", model_name, selfie_name);
-  printf1("; RISC-V code obtained from %s and\n; invoked as", binary_name);
-
-  i = 0;
-
-  while (i < number_of_remaining_arguments()) {
-    printf1(" %s", (char*) *(remaining_arguments() + i));
-
-    i = i + 1;
-  }
-
-  print("\n\n1 sort bitvec 1 ; Boolean\n");
-  print("2 sort bitvec 64 ; 64-bit machine word\n");
-  print("3 sort array 2 2 ; 64-bit memory\n\n");
-
-  print("10 zero 1\n11 one 1\n\n");
-
-  print("20 zero 2\n21 one 2\n22 constd 2 2\n23 constd 2 3\n24 constd 2 4\n25 constd 2 5\n26 constd 2 6\n27 constd 2 7\n28 constd 2 8\n\n");
-
-  print("; word-aligned end of code segment in memory\n\n");
-
-  // end of code segment for checking address validity
-  printf2("30 constd 2 %d ; %x\n\n", (char*) (entry_point + code_length), (char*) (entry_point + code_length));
-
-  print("; word-aligned end of data segment in memory (original program break)\n\n");
-
-  // original program break (end of binary = code + data segment) for checking program break validity
-  printf2("31 constd 2 %d ; %x\n\n", (char*) get_original_break(current_context), (char*) get_original_break(current_context));
-
-  print("; word-aligned initial $sp (stack pointer) value from boot loader\n\n");
-
-  // $sp register value from boot loader
-  printf2("40 constd 2 %d ; %x\n\n", (char*) *(get_regs(current_context) + REG_SP), (char*) *(get_regs(current_context) + REG_SP));
-
-  print("; 4GB of memory\n\n");
-
-  printf2("50 constd 2 %d ; %x\n\n", (char*) VIRTUALMEMORYSIZE, (char*) VIRTUALMEMORYSIZE);
-
-  print("; kernel-mode flag\n\n");
-
-  print("60 state 1 kernel-mode\n");
-  print("61 init 1 60 10 kernel-mode ; initial value is false\n");
-  print("62 not 1 60\n\n");
-
-  print("; unsigned-extended inputs for byte-wise reading\n\n");
-
-  print("71 sort bitvec 8 ; 1 byte\n");
-  print("72 sort bitvec 16 ; 2 bytes\n");
-  print("73 sort bitvec 24 ; 3 bytes\n");
-  print("74 sort bitvec 32 ; 4 bytes\n");
-  print("75 sort bitvec 40 ; 5 bytes\n");
-  print("76 sort bitvec 48 ; 6 bytes\n");
-  print("77 sort bitvec 56 ; 7 bytes\n\n");
-
-  print("81 input 71 ; 1 byte\n");
-  print("82 input 72 ; 2 bytes\n");
-  print("83 input 73 ; 3 bytes\n");
-  print("84 input 74 ; 4 bytes\n");
-  print("85 input 75 ; 5 bytes\n");
-  print("86 input 76 ; 6 bytes\n");
-  print("87 input 77 ; 7 bytes\n\n");
-
-  print("91 uext 2 81 56 ; 1 byte\n");
-  print("92 uext 2 82 48 ; 2 bytes\n");
-  print("93 uext 2 83 40 ; 3 bytes\n");
-  print("94 uext 2 84 32 ; 4 bytes\n");
-  print("95 uext 2 85 24 ; 5 bytes\n");
-  print("96 uext 2 86 16 ; 6 bytes\n");
-  print("97 uext 2 87 8 ; 7 bytes\n");
-  print("98 input 2 ; 8 bytes\n\n");
-
-  print("; 32 64-bit general-purpose registers\n");
-
-  reg_nids = 100;
-
-  reg_flow_nids = smalloc(3 * NUMBEROFREGISTERS * SIZEOFUINT64STAR);
-
-  i = 0;
-
-  while (i < NUMBEROFREGISTERS) {
-    *(reg_flow_nids + i) = reg_nids + i;
-
-    if (i == 0)
-      printf2("\n%d zero 2 %s ; register $0 is always 0\n",
-        (char*) *(reg_flow_nids + i), // nid of this line
-        get_register_name(i));        // register name
-    else
-      printf3("%d state 2 %s ; register $%d\n",
-        (char*) *(reg_flow_nids + i), // nid of this line
-        get_register_name(i),         // register name
-        (char*) i);                   // register index as comment
-
-    i = i + 1;
-  }
-
-  if (check_block_access)
-    while (i < 3 * NUMBEROFREGISTERS) {
-      *(reg_flow_nids + i) = reg_nids + i;
-
-      if (i == LO_FLOW)
-        printf3("\n%d constd 2 %d ; %x\n",
-          (char*) *(reg_flow_nids + i),         // nid of this line
-          (char*) (entry_point + code_length),  // end of code segment
-          (char*) (entry_point + code_length)); // end of code segment
-      else if (i == UP_FLOW)
-        printf3("\n%d constd 2 %d ; %x\n",
-          (char*) *(reg_flow_nids + i), // nid of this line
-          (char*) VIRTUALMEMORYSIZE,    // 4GB of memory addresses
-          (char*) VIRTUALMEMORYSIZE);   // 4GB of memory addresses
-      else {
-        printf1("%d state 2 ", (char*) *(reg_flow_nids + i));
-
-        if (i < LO_FLOW + NUMBEROFREGISTERS)
-          printf2("lo-%s ; lower bound on $%d\n",
-            get_register_name(i % NUMBEROFREGISTERS), // register name
-            (char*) (i % NUMBEROFREGISTERS));         // register index as comment
-        else if (i < UP_FLOW + NUMBEROFREGISTERS)
-          printf2("up-%s ; upper bound on $%d\n",
-            get_register_name(i % NUMBEROFREGISTERS), // register name
-            (char*) (i % NUMBEROFREGISTERS));         // register index as comment
-      }
-
-      i = i + 1;
-    }
-
-  print("\n; initializing registers\n");
-
-  i = 0;
-
-  while (i < NUMBEROFREGISTERS) {
-    if (i == 0)
-      println();
-    else if (i == REG_SP)
-      printf3("%d init 2 %d 40 %s ; initial value from boot loader\n",
-        (char*) (reg_nids * 2 + i), // nid of this line
-        (char*) (reg_nids + i),     // nid of $sp register
-        get_register_name(i));      // register name as comment
-    else
-      printf3("%d init 2 %d 20 %s ; initial value is 0\n",
-        (char*) (reg_nids * 2 + i), // nid of this line
-        (char*) (reg_nids + i),     // nid of to-be-initialized register
-        get_register_name(i));      // register name as comment
-
-    i = i + 1;
-  }
-
-  if (check_block_access)
-    while (i < 3 * NUMBEROFREGISTERS) {
-      if (i % NUMBEROFREGISTERS == 0)
-        println();
-      else if (i < LO_FLOW + NUMBEROFREGISTERS)
-        printf3("%d init 2 %d 30 %s ; initial value is end of code segment\n",
-          (char*) (reg_nids * 2 + i),                // nid of this line
-          (char*) (reg_nids + i),                    // nid of to-be-initialized register
-          get_register_name(i % NUMBEROFREGISTERS)); // register name as comment
-      else if (i < UP_FLOW + NUMBEROFREGISTERS)
-        printf3("%d init 2 %d 50 %s ; initial value is 4GB of memory addresses\n",
-          (char*) (reg_nids * 2 + i),                // nid of this line
-          (char*) (reg_nids + i),                    // nid of to-be-initialized register
-          get_register_name(i % NUMBEROFREGISTERS)); // register name as comment
-
-      i = i + 1;
-    }
-
-  print("\n; 64-bit program counter encoded in Boolean flags\n\n");
-
-  // 3 more digits to accommodate binary starting at entry point and stack with
-  // 100*4 lines per 32-bit instruction (pc increments by 4) and
-  // 100*8 lines per 64-bit machine word in data segment
-  pcs_nid = ten_to_the_power_of(
-    log_ten(entry_point + binary_length +
-      (VIRTUALMEMORYSIZE - *(get_regs(current_context) + REG_SP))) + 3);
-
-  pc = get_pc(current_context);
-  pt = get_pt(current_context);
-
-  while (pc < entry_point + code_length) {
-    current_nid = pc_nid(pcs_nid, pc);
-
-    // pc flag of current instruction
-    printf1("%d state 1\n", (char*) current_nid);
-
-    if (pc == entry_point)
-      // set pc here by initializing pc flag of instruction at address 0 to true
-      printf2("%d init 1 %d 11 ; initial program counter\n",
-        (char*) (current_nid + 1), // nid of this line
-        (char*) current_nid);      // nid of pc flag of current instruction
-    else
-      // initialize all other pc flags to false
-      printf2("%d init 1 %d 10\n",
-        (char*) (current_nid + 1), // nid of this line
-        (char*) current_nid);      // nid of pc flag of current instruction
-
-    pc = pc + INSTRUCTIONSIZE;
-  }
-
-  current_nid = pc_nid(pcs_nid, pc);
-
-  printf1("\n%d state 3 boot-loader\n", (char*) current_nid);
-
-  loader_nid    = current_nid;
-  data_flow_nid = current_nid;
-  current_nid   = current_nid + 1;
-
-  print("\n; data segment\n\n");
-
-  // assert: pc == entry_point + code_length
-
-  while (pc < VIRTUALMEMORYSIZE) {
-    if (pc == get_original_break(current_context)) {
-      // assert: stack pointer < VIRTUALMEMORYSIZE
-      pc = *(get_regs(current_context) + REG_SP);
-
-      print("\n; stack\n\n");
-    }
-
-    // address in data segment or stack
-    printf3("%d constd 2 %d ; %x\n",
-      (char*) current_nid,     // nid of this line
-      (char*) pc, (char*) pc); // address of current machine word
-
-    machine_word = load_virtual_memory(pt, pc);
-
-    if (machine_word == 0) {
-      // load machine word == 0
-      printf3("%d write 3 %d %d 20\n",
-        (char*) (current_nid + 1), // nid of this line
-        (char*) data_flow_nid,     // nid of most recent update to data segment
-        (char*) current_nid);      // nid of address of current machine word
-
-      data_flow_nid = current_nid + 1;
-    } else {
-      // load non-zero machine word
-      printf3("%d constd 2 %d ; %x\n",
-        (char*) (current_nid + 1),                   // nid of this line
-        (char*) machine_word, (char*) machine_word); // value of machine word at current address
-      printf4("%d write 3 %d %d %d\n",
-        (char*) (current_nid + 2),  // nid of this line
-        (char*) data_flow_nid,      // nid of most recent update to data segment
-        (char*) current_nid,        // nid of address of current machine word
-        (char*) (current_nid + 1)); // nid of value of machine word at current address
-
-      data_flow_nid = current_nid + 2;
-    }
-
-    pc = pc + REGISTERSIZE;
-
-    if (current_nid == loader_nid + 1)
-      current_nid = loader_nid + REGISTERSIZE;
-    else
-      current_nid = current_nid + REGISTERSIZE;
-  }
-
-  print("\n; 64-bit memory\n\n");
-
-  memory_nid = pcs_nid * 2;
-
-  current_nid = memory_nid;
-
-  printf1("%d state 3 memory ; data segment, heap, stack\n", (char*) current_nid);
-  printf3("%d init 3 %d %d ; loading data segment and stack into memory\n",
-    (char*) (current_nid + 1), // nid of this line
-    (char*) current_nid,       // nid of memory
-    (char*) data_flow_nid);    // nid of most recent update to data segment
-
-  memory_flow_nid = current_nid;
-
-  if (check_block_access) {
-    current_nid = current_nid + 2;
-
-    lo_memory_nid = current_nid;
-
-    printf1("\n%d state 3 lower-bounds ; for checking address validity\n", (char*) current_nid);
-    printf2("%d init 3 %d 30 ; initializing lower bounds to end of code segment\n",
-      (char*) (current_nid + 1), // nid of this line
-      (char*) current_nid);      // nid of lower bounds on addresses in memory
-
-    lo_memory_flow_nid = current_nid;
-
-    current_nid = current_nid + 2;
-
-    up_memory_nid = current_nid;
-
-    printf1("\n%d state 3 upper-bounds ; for checking address validity\n", (char*) current_nid);
-    printf2("%d init 3 %d 50 ; initializing upper bounds to 4GB of memory addresses\n",
-      (char*) (current_nid + 1), // nid of this line
-      (char*) current_nid);      // nid of upper bounds on addresses in memory
-
-    up_memory_flow_nid = current_nid;
-  }
-
-  print("\n; data flow\n\n");
-
-  code_nid = pcs_nid * 3;
-
-  control_in  = zalloc(code_length / INSTRUCTIONSIZE * SIZEOFUINT64);
-  call_return = zalloc(code_length / INSTRUCTIONSIZE * SIZEOFUINT64);
-
-  current_callee   = entry_point;
-  estimated_return = entry_point;
-
-  pc = get_pc(current_context);
-
-  while (pc < entry_point + code_length) {
-    current_nid = pc_nid(code_nid, pc);
-
-    fetch();
-    decode();
-
-    translate_to_model();
-
-    pc = pc + INSTRUCTIONSIZE;
-  }
-
-  print("\n; syscalls\n\n");
-
-  current_nid = pcs_nid * 4;
-
-  model_syscalls();
-
-  print("\n; control flow\n\n");
-
-  control_nid = pcs_nid * 5;
-
-  pc = get_pc(current_context);
-
-  while (pc < entry_point + code_length) {
-    current_nid = pc_nid(control_nid, pc);
-
-    in_edge = (uint64_t*) *(control_in + (pc - entry_point) / INSTRUCTIONSIZE);
-
-    // nid of 1-bit 0
-    control_flow_nid = 10;
-
-    while (in_edge != (uint64_t*) 0) {
-      from_instruction = *(in_edge + 1);
-      from_address     = *(in_edge + 2);
-      condition_nid    = *(in_edge + 3);
-
-      if (from_instruction == BEQ) {
-        // is beq active and its condition true or false?
-        printf5("%d and 1 %d %d ; beq %d[%x]",
-          (char*) current_nid,                         // nid of this line
-          (char*) pc_nid(pcs_nid, from_address),       // nid of pc flag of instruction proceeding here
-          (char*) condition_nid,                       // nid of true or false beq condition
-          (char*) from_address, (char*) from_address); // address of instruction proceeding here
-        print_code_line_number_for_instruction(from_address, entry_point);println();
-
-        current_nid = current_nid + 1;
-
-        // activate this instruction if beq is active and its condition is true (false)
-        control_flow_nid = control_flow(current_nid - 1, control_flow_nid);
-      } else if (from_instruction == JALR) {
-        jalr_address = *(call_return + (from_address - entry_point) / INSTRUCTIONSIZE);
-
-        if (jalr_address != 0) {
-          // is value of $ra register with LSB reset equal to address of this instruction?
-          printf3("%d not 2 21 ; jalr %d[%x]",
-            (char*) current_nid,                         // nid of this line
-            (char*) jalr_address, (char*) jalr_address); // address of instruction proceeding here
-          print_code_line_number_for_instruction(jalr_address, entry_point);println();
-          printf3("%d and 2 %d %d\n",
-            (char*) (current_nid + 1),   // nid of this line
-            (char*) (reg_nids + REG_RA), // nid of current value of $ra register
-            (char*) current_nid);        // nid of not 1
-          printf3("%d eq 1 %d %d\n",
-            (char*) (current_nid + 2), // nid of this line
-            (char*) (current_nid + 1), // nid of current value of $ra register with LSB reset
-            (char*) condition_nid);    // nid of address of this instruction (generated by jal)
-
-          // is jalr active and the previous condition true or false?
-          printf3("%d and 1 %d %d\n",
-            (char*) (current_nid + 3),             // nid of this line
-            (char*) pc_nid(pcs_nid, jalr_address), // nid of pc flag of instruction proceeding here
-            (char*) (current_nid + 2));            // nid of return address condition
-
-          current_nid = current_nid + 4;
-
-          // activate this instruction if jalr is active and its condition is true (false)
-          control_flow_nid = control_flow(current_nid - 1, control_flow_nid);
-        } else {
-          // no jalr returning from jal found
-
-          printf2("; exit ecall wrapper call or runaway jal %d[%x]", (char*) from_address, (char*) from_address);
-          print_code_line_number_for_instruction(from_address, entry_point);println();
-
-          // this instruction may stay deactivated if there is no more in-edges
-        }
-      } else if (from_instruction == ECALL) {
-        printf3("%d state 1 ; kernel-mode pc flag of ecall %d[%x]",
-          (char*) current_nid,                         // nid of this line
-          (char*) from_address, (char*) from_address); // address of instruction proceeding here
-        print_code_line_number_for_instruction(from_address, entry_point);println();
-
-        printf2("%d init 1 %d 10 ; ecall is initially inactive\n",
-          (char*) (current_nid + 1), // nid of this line
-          (char*) current_nid);      // nid of kernel-mode pc flag of ecall
-
-        printf3("%d ite 1 %d 60 %d ; activate ecall and keep active while in kernel mode\n",
-          (char*) (current_nid + 2),              // nid of this line
-          (char*) current_nid,                    // nid of kernel-mode pc flag of ecall
-          (char*) pc_nid(pcs_nid, from_address)); // nid of pc flag of instruction proceeding here
-
-        printf3("%d next 1 %d %d ; keep ecall active while in kernel mode\n",
-          (char*) (current_nid + 3),  // nid of this line
-          (char*) current_nid,        // nid of kernel-mode pc flag of ecall
-          (char*) (current_nid + 2)); // nid of previous line
-
-        printf2("%d and 1 %d 62 ; ecall is active but not in kernel mode anymore\n",
-          (char*) (current_nid + 4), // nid of this line
-          (char*) current_nid);      // nid of kernel-mode pc flag of ecall
-
-        current_nid = current_nid + 5;
-
-        // activate this instruction if ecall is active but not in kernel mode anymore
-        control_flow_nid = control_flow(current_nid - 1, control_flow_nid);
-      } else {
-        if (from_instruction == JAL) print("; jal "); else print("; ");
-        printf2("%d[%x]", (char*) from_address, (char*) from_address);
-        print_code_line_number_for_instruction(from_address, entry_point);println();
-
-        // activate this instruction if instruction proceeding here is active
-        control_flow_nid = control_flow(pc_nid(pcs_nid, from_address), control_flow_nid);
-      }
-
-      in_edge = (uint64_t*) *in_edge;
-    }
-
-    // update pc flag of current instruction
-    printf5("%d next 1 %d %d ; ->%d[%x]",
-      (char*) current_nid,         // nid of this line
-      (char*) pc_nid(pcs_nid, pc), // nid of pc flag of current instruction
-      (char*) control_flow_nid,    // nid of most recently processed in-edge
-      (char*) pc, (char*) pc);     // address of current instruction
-    print_code_line_number_for_instruction(pc, entry_point);
-    if (control_flow_nid == 10)
-      if (pc > entry_point)
-        // TODO: warn here about unreachable code
-        print(" (unreachable)");
-    println();
-
-    if (current_nid >= pc_nid(control_nid, pc) + 400) {
-      // the instruction at pc is reachable by too many other instructions
-
-      //report the error on the console
-      output_fd = 1;
-
-      printf2("%s: too many in-edges at instruction address %x detected\n", selfie_name, (char*) pc);
-
-      return EXITCODE_MODELCHECKINGERROR;
-    }
-
-    pc = pc + INSTRUCTIONSIZE;
-  }
-
-  print("\n; updating registers\n");
-
-  current_nid = pcs_nid * 6;
-
-  i = 0;
-
-  while (i < NUMBEROFREGISTERS) {
-    if (i == 0)
-      println();
-    else
-      printf5("%d next 2 %d %d %s ; register $%d\n",
-        (char*) (current_nid + i),    // nid of this line
-        (char*) (reg_nids + i),       // nid of register
-        (char*) *(reg_flow_nids + i), // nid of most recent update to register
-        get_register_name(i),         // register name
-        (char*) i);                   // register index as comment
-
-    i = i + 1;
-  }
-
-  if (check_block_access)
-    while (i < 3 * NUMBEROFREGISTERS) {
-      if (i % NUMBEROFREGISTERS == 0)
-        println();
-      else {
-        printf3("%d next 2 %d %d ",
-          (char*) (current_nid + i),     // nid of this line
-          (char*) (reg_nids + i),        // nid of register
-          (char*) *(reg_flow_nids + i)); // nid of most recent update to register
-
-        if (i < LO_FLOW + NUMBEROFREGISTERS)
-          printf2("lo-%s ; lower bound on $%d\n",
-            get_register_name(i % NUMBEROFREGISTERS), // register name
-            (char*) (i % NUMBEROFREGISTERS));         // register index as comment
-        else if (i < UP_FLOW + NUMBEROFREGISTERS)
-          printf2("up-%s ; upper bound on $%d\n",
-            get_register_name(i % NUMBEROFREGISTERS), // register name
-            (char*) (i % NUMBEROFREGISTERS));         // register index as comment
-      }
-
-      i = i + 1;
-    }
-
-  print("\n; updating memory\n\n");
-
-  current_nid = pcs_nid * 7;
-
-  printf3("%d next 3 %d %d memory\n",
-      (char*) current_nid,      // nid of this line
-      (char*) memory_nid,       // nid of memory
-      (char*) memory_flow_nid); // nid of most recent write to memory
-
-  if (check_block_access) {
-    printf3("%d next 3 %d %d lower-bounds\n",
-        (char*) (current_nid + 1),   // nid of this line
-        (char*) lo_memory_nid,       // nid of lower bounds on addresses in memory
-        (char*) lo_memory_flow_nid); // nid of most recent write to lower bounds on addresses in memory
-    printf3("%d next 3 %d %d upper-bounds\n",
-        (char*) (current_nid + 2),   // nid of this line
-        (char*) up_memory_nid,       // nid of upper bounds on addresses in memory
-        (char*) up_memory_flow_nid); // nid of most recent write to upper bounds on addresses in memory
-  }
-
-  print("\n; checking division and remainder by zero\n\n");
-
-  current_nid = pcs_nid * 8;
-
-  check_division_by_zero(1, division_flow_nid);
-  check_division_by_zero(0, remainder_flow_nid);
-
-  print("; checking address validity\n\n");
-
-  current_nid = pcs_nid * 9;
-
-  check_address_validity(1, access_flow_start_nid, lo_flow_start_nid, up_flow_start_nid);
-  check_address_validity(0, access_flow_end_nid, lo_flow_end_nid, up_flow_end_nid);
-
-  // TODO: check validity of return addresses in jalr
-
-  printf1("; end of BTOR2 %s\n", model_name);
-
-  model_check = 0;
-
-  output_name = (char*) 0;
-  output_fd   = 1;
-
-  printf3("%s: %d characters of model formulae written into %s\n", selfie_name,
-    (char*) number_of_written_characters,
-    model_name);
-
-  return EXITCODE_NOERROR;
-}
 
 // -----------------------------------------------------------------
 // -------------------------- SAT Solver ---------------------------
@@ -11631,9 +10115,9 @@ uint64_t* remaining_arguments() {
   return selfie_argv;
 }
 
-char* peek_argument(uint64_t lookahead) {
-  if (number_of_remaining_arguments() > lookahead)
-    return (char*) *(selfie_argv + lookahead);
+char* peek_argument() {
+  if (number_of_remaining_arguments() > 0)
+    return (char*) *selfie_argv;
   else
     return (char*) 0;
 }
@@ -11641,7 +10125,7 @@ char* peek_argument(uint64_t lookahead) {
 char* get_argument() {
   char* argument;
 
-  argument = peek_argument(0);
+  argument = peek_argument();
 
   if (number_of_remaining_arguments() > 0) {
     selfie_argc = selfie_argc - 1;
@@ -11658,7 +10142,7 @@ void set_argument(char* argv) {
 void print_usage() {
   printf3("%s: usage: selfie { %s } [ %s ]\n", selfie_name,
     "-c { source } | -o binary | [ -s | -S ] assembly | -l binary | -sat dimacs",
-    "( -m | -d | -r | -y | -min | -mob | -se | -mc ) 0-4096 ... ");
+    "( -m | -d | -r | -n | -y | -min | -mob ) 0-4096 ... ");
 }
 
 uint64_t selfie() {
@@ -11676,6 +10160,7 @@ uint64_t selfie() {
 
       if (string_compare(option, "-c"))
         selfie_compile();
+
       else if (number_of_remaining_arguments() == 0) {
         // remaining options have at least one argument
         print_usage();
@@ -11697,16 +10182,14 @@ uint64_t selfie() {
         return selfie_run(DIPSTER);
       else if (string_compare(option, "-r"))
         return selfie_run(RIPSTER);
+      else if (string_compare(option, "-n"))
+        return selfie_run(MONSTER);
       else if (string_compare(option, "-y"))
         return selfie_run(HYPSTER);
       else if (string_compare(option, "-min"))
         return selfie_run(MINSTER);
       else if (string_compare(option, "-mob"))
         return selfie_run(MOBSTER);
-      else if (string_compare(option, "-se"))
-        return selfie_run(MONSTER);
-      else if (string_compare(option, "-mc"))
-        return selfie_model_generate();
       else {
         print_usage();
 
