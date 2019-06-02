@@ -1252,7 +1252,7 @@ uint64_t  is_potential_recursive_merge_location(uint64_t prologue_start);
 
 void      merge(uint64_t* active_context, uint64_t* mergeable_context, uint64_t location);
 void      merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context);
-uint64_t* merge_if_possible_and_get_context(uint64_t* context);
+uint64_t* merge_if_possible_and_get_next_context(uint64_t* context);
 
 // ------------------------ GLOBAL VARIABLES -----------------------
 
@@ -8011,7 +8011,7 @@ void merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context)
   set_symbolic_regs(active_context, reg_sym);
 }
 
-uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
+uint64_t* merge_if_possible_and_get_next_context(uint64_t* context) {
   uint64_t merge_not_finished;
   uint64_t mergeable;
   uint64_t pauseable;
@@ -9603,7 +9603,7 @@ uint64_t monster(uint64_t* to_context) {
             set_merge_location(to_context, get_merge_location(current_context));
         }
 
-        to_context = merge_if_possible_and_get_context(to_context);
+        to_context = merge_if_possible_and_get_next_context(to_context);
 
         if (to_context)
           timeout = max_execution_depth - get_execution_depth(to_context);
@@ -9621,7 +9621,7 @@ uint64_t monster(uint64_t* to_context) {
         }
       } else if (exception == MERGE) {
         set_symbolic_memory(from_context, symbolic_memory);
-        to_context = merge_if_possible_and_get_context(get_waiting_context());
+        to_context = merge_if_possible_and_get_next_context(get_waiting_context());
 
         timeout = max_execution_depth - get_execution_depth(to_context);
       } else {
