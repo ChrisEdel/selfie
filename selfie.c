@@ -8044,6 +8044,7 @@ uint64_t* merge_if_possible_and_get_next_context(uint64_t* context) {
   uint64_t pauseable;
 
   merge_not_finished = 1;
+
   while (merge_not_finished) {
     mergeable = 1;
     pauseable = 1;
@@ -8055,8 +8056,7 @@ uint64_t* merge_if_possible_and_get_next_context(uint64_t* context) {
     } else
       symbolic_memory = get_symbolic_memory(context);
 
-    // check if the context can be merged
-    // with one or more mergeable contexts
+    // check if the context can be merged with one or more mergeable contexts
     while (mergeable) {
       if (current_mergeable_context == (uint64_t*) 0)
         current_mergeable_context = get_mergeable_context();
@@ -8066,20 +8066,18 @@ uint64_t* merge_if_possible_and_get_next_context(uint64_t* context) {
           merge(context, current_mergeable_context, get_pc(context));
         else
           mergeable = 0;
-
       } else
         mergeable = 0;
     }
     
-    // check if the context has reached a merge location
-    // and needs to be paused
+    // check if the context has reached a merge location and needs to be paused
     while (pauseable) {
       if (get_pc(context) == get_merge_location(context)) {
         add_mergeable_context(context);
         context = get_waiting_context();
         
         // break out of the loop
-        if(context == (uint64_t*) 0) {
+        if (context == (uint64_t*) 0) {
           mergeable = 0;
           pauseable = 0;
         }
@@ -8101,8 +8099,7 @@ uint64_t* merge_if_possible_and_get_next_context(uint64_t* context) {
         merge_not_finished = 0;
   }
 
-  // check if there are contexts which have been paused and were
-  // not merged yet
+  // check if there are contexts which have been paused and were not merged yet
   if(context == (uint64_t*) 0)
     context = get_mergeable_context();
 
