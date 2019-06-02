@@ -9332,7 +9332,7 @@ uint64_t handle_timer(uint64_t* context) {
 
 uint64_t handle_merge(uint64_t* context) {
   add_mergeable_context(current_context);
-  
+
   set_exception(context, EXCEPTION_NOEXCEPTION);
 
   return MERGE;
@@ -9579,7 +9579,6 @@ uint64_t monster(uint64_t* to_context) {
   smt_name = replace_extension(binary_name, 't');
 
   // assert: smt_name is mapped and not longer than MAX_FILENAME_LENGTH
-
   smt_fd = open_write_only(smt_name);
 
   if (signed_less_than(smt_fd, 0)) {
@@ -9613,21 +9612,22 @@ uint64_t monster(uint64_t* to_context) {
       timeout = TIMEROFF;
     } else {
       exception = handle_exception(from_context);
+
       if (exception == EXIT) {
         set_symbolic_memory(from_context, symbolic_memory);
+
         // if a context is currently waiting to be merged, we need to switch to this one
         if (current_mergeable_context != (uint64_t*) 0) {
           // update the merge location, so the 'new' context can be merged later
           set_merge_location(current_mergeable_context, get_merge_location(current_context));
+
           to_context = current_mergeable_context;
 
-        // if no context is currently waiting to be merged,
-        // we switch to the next waiting context
+        // if no context is currently waiting to be merged, we switch to the next waiting context
         } else
           to_context = get_waiting_context();
 
-        // it may be possible that there are no waiting contexts,
-        // but mergeable contexts
+        // it may be possible that there are no waiting contexts, but mergeable contexts
         if (to_context == (uint64_t*) 0) {
           to_context = get_mergeable_context();
 
@@ -9654,6 +9654,7 @@ uint64_t monster(uint64_t* to_context) {
         }
       } else if (exception == MERGE) {
         set_symbolic_memory(from_context, symbolic_memory);
+
         to_context = merge_if_possible_and_get_next_context(get_waiting_context());
 
         timeout = max_execution_depth - get_execution_depth(to_context);
