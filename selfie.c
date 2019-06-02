@@ -7268,19 +7268,15 @@ void constrain_beq() {
     // save symbolic memory so that it is copied correctly afterwards
     set_symbolic_memory(current_context, symbolic_memory);
 
-    // we may be able to merge with this context later
-    add_waiting_context(copy_context(current_context,
-      pc + imm,
-      smt_binary("and", pvar, bvar),
-      max_execution_depth - timer)
-    );
+    // the copied context is executed later and takes the other path
+    add_waiting_context(copy_context(current_context, pc + imm, smt_binary("and", pvar, bvar), max_execution_depth - timer));
 
     path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
     set_merge_location(current_context, find_merge_location(imm));
   
-    // check if a context is waiting for the merge
+    // check if a context is waiting to be merged
     if (current_mergeable_context != (uint64_t*) 0) {
-      // we cannot merge with this one, so we add it back to the stack
+      // we cannot merge with this one (yet), so we add it back to the stack
       // of mergeable contexts
       add_mergeable_context(current_mergeable_context);
       current_mergeable_context = (uint64_t*) 0;
