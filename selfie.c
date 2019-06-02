@@ -7565,6 +7565,7 @@ void store_symbolic_memory(uint64_t vaddr, uint64_t val, char* sym, char* var, u
 
   sword = allocate_symbolic_memory_word();
 
+  // we 'delete' the word, if it already exists in the symbolic memory
   delete_word_from_symbolic_memory(vaddr);
 
   set_next_word(sword, symbolic_memory);
@@ -7595,17 +7596,19 @@ void copy_symbolic_memory(uint64_t* from_context, uint64_t* to_context) {
 
   sword = get_symbolic_memory(from_context);
   symbolic_memory_copy = (uint64_t*) 0;
+
   while (sword) {
     sword_copy = allocate_symbolic_memory_word();
-    if(previous != (uint64_t*) 0)
-      set_next_word(previous, sword_copy);
 
     set_word_address(sword_copy, get_word_address(sword));
     set_word_value(sword_copy, get_word_value(sword));
     set_word_symbolic(sword_copy, get_word_symbolic(sword));
     set_number_of_bits(sword_copy, get_number_of_bits(sword));
 
-    if(symbolic_memory_copy == (uint64_t*) 0)
+    if (previous != (uint64_t*) 0)
+      set_next_word(previous, sword_copy);
+
+    if (symbolic_memory_copy == (uint64_t*) 0)
       symbolic_memory_copy = sword_copy;
 
     previous = sword_copy;
@@ -7623,6 +7626,7 @@ void delete_word_from_symbolic_memory(uint64_t vaddr) {
 
   while (sword) {
     if (get_word_address(sword) == vaddr)
+      // note: we do not really delete the word, we just set the virtual address to -1
       set_word_address(sword, -1);
 
     sword = get_next_word(sword);
