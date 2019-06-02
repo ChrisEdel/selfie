@@ -1487,7 +1487,7 @@ uint64_t* delete_context(uint64_t* context, uint64_t* from);
 // | 18 | symbolic memory | pointer to symbolic memory
 // | 19 | symbolic regs   | pointer to symbolic registers
 // | 20 | beq counter     | number of executed symbolic beq instructions
-// | 21 | merge location  | program location at which the context can potentially be merged (later)
+// | 21 | merge location  | program location at which the context can possibly be merged (later)
 // +----+-----------------+
 
 uint64_t* allocate_context() {
