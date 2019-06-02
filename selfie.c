@@ -7875,7 +7875,7 @@ uint64_t is_potential_recursive_merge_location(uint64_t prologue_start) {
   uint64_t* entry;
 
   entry = potential_recursive_merge_locations;
-  
+
   while (entry) {
     if (*(entry + 1) == prologue_start)
       return 1;
@@ -7887,12 +7887,12 @@ uint64_t is_potential_recursive_merge_location(uint64_t prologue_start) {
 }
 
 void merge(uint64_t* active_context, uint64_t* mergeable_context, uint64_t location) {
-  print("; merging at ");
+  print("; merging two contexts at ");
   print_code_context_for_instruction(location);
   println();
 
-  if(potential_recursive_merge_locations != (uint64_t*) 0)
-    if(get_pc(active_context) == *(potential_recursive_merge_locations + 2))
+  if (potential_recursive_merge_locations != (uint64_t*) 0)
+    if (get_pc(active_context) == *(potential_recursive_merge_locations + 2))
       // we have finished the recursion
       in_recursion = 0;
 
