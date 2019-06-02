@@ -7837,6 +7837,8 @@ void add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t me
   uint64_t* entry;
 
   entry = potential_recursive_merge_locations;
+
+  // do not add duplicates
   while (entry) {
     if (*(entry + 1) == prologue_start)
       return;
@@ -7858,6 +7860,7 @@ uint64_t get_potential_recursive_merge_location(uint64_t prologue_start) {
   uint64_t* entry;
 
   entry = potential_recursive_merge_locations;
+
   while (entry) {
     if (*(entry + 1) == prologue_start)
       return (uint64_t) *(entry + 2);
@@ -7872,6 +7875,7 @@ uint64_t is_potential_recursive_merge_location(uint64_t prologue_start) {
   uint64_t* entry;
 
   entry = potential_recursive_merge_locations;
+  
   while (entry) {
     if (*(entry + 1) == prologue_start)
       return 1;
