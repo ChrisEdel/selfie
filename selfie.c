@@ -8028,12 +8028,13 @@ void merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context)
           *(reg_sym + i) = (uint64_t) smt_ternary("ite",
                                         get_path_condition(active_context),
                                         bv_constant(*(get_regs(active_context) + i)),
-                                        bv_constant(*(get_regs(mergeable_context) + i)));
+                                        bv_constant(*(get_regs(mergeable_context) + i))
+                                      );
     }
   
     i = i + 1;
   }
-  
+
   set_symbolic_regs(active_context, reg_sym);
 }
 
