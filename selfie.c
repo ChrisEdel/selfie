@@ -7917,7 +7917,9 @@ void merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context)
   uint64_t i;
 
   sword_from_active_context = symbolic_memory;
+  // merging the symbolic memory
   while (sword_from_active_context) {
+    // check if the word has not already been 'deleted' (note: 'deleted' would mean an virtual address of -1)
     if (get_word_address(sword_from_active_context) != (uint64_t) -1) {
       sword_from_mergeable_context = get_symbolic_memory(mergeable_context);
 
@@ -7934,7 +7936,8 @@ void merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context)
                     get_word_symbolic(sword_from_mergeable_context)
                   )
                 );
-                // 'delete' the value since it does not need to be merged again
+
+                // 'delete' the word since it does not need to be merged again
                 set_word_address(sword_from_mergeable_context, -1);
               }
             } else {
@@ -7946,7 +7949,8 @@ void merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context)
                   bv_constant(get_word_value(sword_from_mergeable_context))
                 )
               );
-              // 'delete' the value since it does not need to be merged again
+
+              // 'delete' the word since it does not need to be merged again
               set_word_address(sword_from_mergeable_context, -1);
             }
           } else {
@@ -7959,6 +7963,8 @@ void merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context)
                   get_word_symbolic(sword_from_mergeable_context)
                 )
               );
+
+              // 'delete' the word since it does not need to be merged again
               set_word_address(sword_from_mergeable_context, -1);
             } else {
               if (get_word_value(sword_from_active_context) != get_word_value(sword_from_mergeable_context)) {
@@ -7970,6 +7976,8 @@ void merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context)
                     bv_constant(get_word_value(sword_from_mergeable_context))
                   )
                 );
+
+                // 'delete' the word since it does not need to be merged again
                 set_word_address(sword_from_mergeable_context, -1);
               }
             }
@@ -7979,37 +7987,53 @@ void merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context)
         sword_from_mergeable_context = get_next_word(sword_from_mergeable_context);
       }
     }
-  sword_from_active_context = get_next_word(sword_from_active_context);
+
+    sword_from_active_context = get_next_word(sword_from_active_context);
   }
 
+  // the active context contains now the merged symbolic memory
   set_symbolic_memory(active_context, symbolic_memory);  
 
   i = 0;
+
+  // merging the symbolic registers
   while (i < NUMBEROFREGISTERS) {
     if (*(get_symbolic_regs(active_context) + i) != 0) {
       if (*(get_symbolic_regs(mergeable_context) + i) != 0) {
-        if (*(get_symbolic_regs(active_context) + i) != *(get_symbolic_regs(mergeable_context) + i)) {
+        if (*(get_symbolic_regs(active_context) + i) != *(get_symbolic_regs(mergeable_context) + i))
           // merge symbolic values if they are different
-          *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(active_context), (char*) *(get_symbolic_regs(active_context) + i), (char*) *(get_symbolic_regs(mergeable_context) + i));
-        }
-      } else {
+          *(reg_sym + i) = (uint64_t) smt_ternary("ite",
+                                        get_path_condition(active_context),
+                                        (char*) *(get_symbolic_regs(active_context) + i),
+                                        (char*) *(get_symbolic_regs(mergeable_context) + i)
+                                      );
+      } else
         // merge symbolic value and concrete value
-        *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(active_context), (char*) *(get_symbolic_regs(active_context) + i), bv_constant(*(get_regs(mergeable_context) + i)));
-      }
+        *(reg_sym + i) = (uint64_t) smt_ternary("ite",
+                                      get_path_condition(active_context),
+                                      (char*) *(get_symbolic_regs(active_context) + i),
+                                      bv_constant(*(get_regs(mergeable_context) + i))
+                                    );
     } else {
-      if (*(get_symbolic_regs(mergeable_context) + i) != 0) {
+      if (*(get_symbolic_regs(mergeable_context) + i) != 0)
         // merge concrete value and symbolic value
-        *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(active_context), bv_constant(*(get_regs(active_context) + i)), (char*) *(get_symbolic_regs(mergeable_context) + i));
-      } else {
-        if (*(get_regs(active_context) + i) != *(get_regs(mergeable_context) + i)) {
+        *(reg_sym + i) = (uint64_t) smt_ternary("ite",
+                                      get_path_condition(active_context),
+                                      bv_constant(*(get_regs(active_context) + i)),
+                                      (char*) *(get_symbolic_regs(mergeable_context) + i)
+                                    );
+      else
+        if (*(get_regs(active_context) + i) != *(get_regs(mergeable_context) + i))
           // merge concrete values if they are different
-          *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(active_context), bv_constant(*(get_regs(active_context) + i)), bv_constant(*(get_regs(mergeable_context) + i)));
-        }
-      }
+          *(reg_sym + i) = (uint64_t) smt_ternary("ite",
+                                        get_path_condition(active_context),
+                                        bv_constant(*(get_regs(active_context) + i)),
+                                        bv_constant(*(get_regs(mergeable_context) + i)));
     }
   
-  i = i + 1;
+    i = i + 1;
   }
+  
   set_symbolic_regs(active_context, reg_sym);
 }
 
