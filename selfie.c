@@ -8425,8 +8425,9 @@ void execute_debug() {
 }
 
 void execute_symbolically() {
-  uint64_t original_pc;
-  uint64_t temp_pc;
+  uint64_t pc_after_jal;
+  uint64_t pc_before_jal;
+
   // assert: 1 <= is <= number of RISC-U instructions
   if (is == ADDI) {
     constrain_addi();
@@ -8457,9 +8458,12 @@ void execute_symbolically() {
   } else if (is == BEQ)
     constrain_beq();
   else if (is == JAL) {
-    temp_pc = pc;
+    pc_before_jal = pc;
     do_jal();
-    original_pc = pc;
+
+    pc_after_jal = pc;
+
+    // we need to check if we get into a recursion
     fetch();
     decode();
 
@@ -8467,36 +8471,40 @@ void execute_symbolically() {
       pc = pc + INSTRUCTIONSIZE;
       fetch();
       decode();
+
       if (is == SD) {
         pc = pc + INSTRUCTIONSIZE;
         fetch();
         decode();
+
         if (is == ADDI) {
           pc = pc + INSTRUCTIONSIZE;
           fetch();
           decode();
+
           if (is == SD) {
             pc = pc + INSTRUCTIONSIZE;
             fetch();
             decode();
-            if( is == ADDI) {
+
+            if (is == ADDI) {
               // this may be the prologue of a function
               if (in_recursion == 0)
-                potential_recursive_merge_location = temp_pc + 2 * INSTRUCTIONSIZE;
+                potential_recursive_merge_location = pc_before_jal + 2 * INSTRUCTIONSIZE;
               else
                 // do not change the merge location since we only merge when the recursion is finished
                 potential_recursive_merge_location = *(potential_recursive_merge_locations + 2);
                 
-             prologue_start = original_pc;
+             prologue_start = pc_after_jal;
              add_potential_recursive_merge_location(prologue_start, potential_recursive_merge_location);
             }
           }
         }
       }
     }
-    pc = original_pc;
-  }
-  else if (is == JALR) {
+
+    pc = pc_after_jal;
+  } else if (is == JALR) {
     constrain_jalr();
     do_jalr();
   } else if (is == LUI) {
