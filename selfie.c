@@ -8531,8 +8531,7 @@ void interrupt() {
 
   if (symbolic) {
     if (current_mergeable_context != (uint64_t*) 0)
-      // if both contexts are at the same program location,
-      // they can be merged
+      // if both contexts are at the same program location, they can be merged
       if (pc == get_pc(current_mergeable_context))
         merge(current_context, current_mergeable_context, pc);
     
@@ -8835,9 +8834,10 @@ uint64_t* copy_context(uint64_t* original, uint64_t location, char* condition, u
 
   set_execution_depth(context, depth);
   set_path_condition(context, condition);
-  copy_symbolic_memory(original, context);
   set_beq_counter(context, get_beq_counter(original));
   set_merge_location(context, get_merge_location(original));
+
+  copy_symbolic_memory(original, context);
 
   set_symbolic_regs(context, smalloc(NUMBEROFREGISTERS * REGISTERSIZE));
 
@@ -9332,6 +9332,7 @@ uint64_t handle_timer(uint64_t* context) {
 
 uint64_t handle_merge(uint64_t* context) {
   add_mergeable_context(current_context);
+  
   set_exception(context, EXCEPTION_NOEXCEPTION);
 
   return MERGE;
