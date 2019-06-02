@@ -1273,11 +1273,10 @@ uint64_t smt_fd   = 0;         // file descriptor of open SMT-LIB file
 
 uint64_t* mergeable_contexts                  = (uint64_t*) 0; // contexts that have reached their merge location
 uint64_t* waiting_contexts                    = (uint64_t*) 0; // contexts that were created at a symbolic beq instruction and are waiting to be executed
-uint64_t* current_mergeable_context           = (uint64_t*) 0; // last context that has reached its merge location
+uint64_t* current_mergeable_context           = (uint64_t*) 0; // current context with which the active context can possibly be merged
 uint64_t* potential_recursive_merge_locations = (uint64_t*) 0; // stack which stores merge locations of potential recursive functions
 
-// TODO
-uint64_t is_recursive = 0;
+uint64_t in_recursion = 0;
 uint64_t potential_recursive_merge_location = 0;
 uint64_t prologue_start = 0;
 
@@ -7775,7 +7774,7 @@ uint64_t find_merge_location(uint64_t beq_imm) {
 
     if (is == JAL)
       if (is_potential_recursive_merge_location(pc + imm)) {
-        is_recursive = 1;
+        in_recursion = 1;
         merge_location = get_potential_recursive_merge_location(pc + imm) + 2 * INSTRUCTIONSIZE;
       }
 
@@ -7892,7 +7891,7 @@ void merge(uint64_t* active_context, uint64_t* mergeable_context, uint64_t locat
   if(potential_recursive_merge_locations != (uint64_t*) 0)
     if(get_pc(active_context) == *(potential_recursive_merge_locations + 2))
       // we have finished the recursion
-      is_recursive = 0;
+      in_recursion = 0;
 
   // merging the symbolic store
   merge_symbolic_store(active_context, mergeable_context);
@@ -8457,7 +8456,7 @@ void execute_symbolically() {
             decode();
             if( is == ADDI) {
               // this may be the prologue of a function
-              if (is_recursive == 0)
+              if (in_recursion == 0)
                 potential_recursive_merge_location = temp_pc + 2 * INSTRUCTIONSIZE;
               else
                 // do not change the merge location since we only merge when the recursion is finished
