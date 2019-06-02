@@ -1192,7 +1192,7 @@ void init_replay_engine() {
 uint64_t* load_symbolic_memory(uint64_t vaddr);
 void      store_symbolic_memory(uint64_t vaddr, uint64_t val, char* sym, char* var, uint64_t bits);
 void      copy_symbolic_memory(uint64_t* from_context, uint64_t* to_context);
-void      delete_symbolic_word(uint64_t vaddr);
+void      delete_word_from_symbolic_memory(uint64_t vaddr);
 
 uint64_t is_symbolic_value(uint64_t* sword);
 
@@ -7570,7 +7570,7 @@ void store_symbolic_memory(uint64_t vaddr, uint64_t val, char* sym, char* var, u
 
   sword = allocate_symbolic_memory_word();
 
-  delete_symbolic_word(vaddr);
+  delete_word_from_symbolic_memory(vaddr);
 
   set_next_word(sword, symbolic_memory);
   set_word_address(sword, vaddr);
@@ -7621,7 +7621,7 @@ void copy_symbolic_memory(uint64_t* from_context, uint64_t* to_context) {
   set_symbolic_memory(to_context, symbolic_memory_copy);
 }
 
-void delete_symbolic_word(uint64_t vaddr) {
+void delete_word_from_symbolic_memory(uint64_t vaddr) {
   uint64_t* sword;
 
   sword = symbolic_memory;
