@@ -1250,8 +1250,8 @@ void      add_potential_recursive_merge_location(uint64_t prologue_start, uint64
 uint64_t  get_potential_recursive_merge_location(uint64_t prologue_start);
 uint64_t  is_potential_recursive_merge_location(uint64_t prologue_start);
 
-void      merge(uint64_t* context1, uint64_t* context2, uint64_t location);
-void      merge_symbolic_store(uint64_t* context1, uint64_t* context2);
+void      merge(uint64_t* active_context, uint64_t* mergeable_context, uint64_t location);
+void      merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context);
 uint64_t* merge_if_possible_and_get_context(uint64_t* context);
 
 // ------------------------ GLOBAL VARIABLES -----------------------
@@ -7884,131 +7884,131 @@ uint64_t is_potential_recursive_merge_location(uint64_t prologue_start) {
   return 0;
 }
 
-void merge(uint64_t* context1, uint64_t* context2, uint64_t location) {
+void merge(uint64_t* active_context, uint64_t* mergeable_context, uint64_t location) {
   print("; merging at ");
   print_code_context_for_instruction(location);
   println();
 
   if(potential_recursive_merge_locations != (uint64_t*) 0)
-    if(get_pc(context1) == *(potential_recursive_merge_locations + 2))
+    if(get_pc(active_context) == *(potential_recursive_merge_locations + 2))
       // we have finished the recursion
       is_recursive = 0;
 
   // merging the symbolic store
-  merge_symbolic_store(context1, context2);
+  merge_symbolic_store(active_context, mergeable_context);
 
   // merging the path condition
-  path_condition = smt_binary("or", get_path_condition(context1), get_path_condition(context2));
-  set_path_condition(context1, path_condition);
+  path_condition = smt_binary("or", get_path_condition(active_context), get_path_condition(mergeable_context));
+  set_path_condition(active_context, path_condition);
 
   current_mergeable_context = get_mergeable_context();
 
   // it may be possible that more contexts can be merged
   if (current_mergeable_context != (uint64_t*) 0)
     if (pc == get_pc(current_mergeable_context))
-      merge(context1, current_mergeable_context, pc);
+      merge(active_context, current_mergeable_context, pc);
 }
 
-void merge_symbolic_store(uint64_t* context1, uint64_t* context2) {
-  uint64_t* sword1;
-  uint64_t* sword2;
+void merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context) {
+  uint64_t* sword_from_active_context;
+  uint64_t* sword_from_mergeable_context;
   uint64_t i;
 
-  sword1 = symbolic_memory;
-  while (sword1) {
-    if (get_word_address(sword1) != (uint64_t) -1) {
-      sword2 = get_symbolic_memory(context2);
+  sword_from_active_context = symbolic_memory;
+  while (sword_from_active_context) {
+    if (get_word_address(sword_from_active_context) != (uint64_t) -1) {
+      sword_from_mergeable_context = get_symbolic_memory(mergeable_context);
 
-      while (sword2) {
-        if (get_word_address(sword1) == get_word_address(sword2)) {
-          if (get_word_symbolic(sword1) != (char*) 0) {
-            if (get_word_symbolic(sword2) != (char*) 0) {
-              if (get_word_symbolic(sword1) != get_word_symbolic(sword2)) {
+      while (sword_from_mergeable_context) {
+        if (get_word_address(sword_from_active_context) == get_word_address(sword_from_mergeable_context)) {
+          if (get_word_symbolic(sword_from_active_context) != (char*) 0) {
+            if (get_word_symbolic(sword_from_mergeable_context) != (char*) 0) {
+              if (get_word_symbolic(sword_from_active_context) != get_word_symbolic(sword_from_mergeable_context)) {
                 // merge symbolic values if they are different
-                set_word_symbolic(sword1, 
+                set_word_symbolic(sword_from_active_context, 
                   smt_ternary("ite", 
-                    get_path_condition(context1), 
-                    get_word_symbolic(sword1), 
-                    get_word_symbolic(sword2)
+                    get_path_condition(active_context), 
+                    get_word_symbolic(sword_from_active_context), 
+                    get_word_symbolic(sword_from_mergeable_context)
                   )
                 );
                 // 'delete' the value since it does not need to be merged again
-                set_word_address(sword2, -1);
+                set_word_address(sword_from_mergeable_context, -1);
               }
             } else {
               // merge symbolic value and concrete value
-              set_word_symbolic(sword1, 
+              set_word_symbolic(sword_from_active_context, 
                 smt_ternary("ite", 
-                  get_path_condition(context1), 
-                  get_word_symbolic(sword1), 
-                  bv_constant(get_word_value(sword2))
+                  get_path_condition(active_context), 
+                  get_word_symbolic(sword_from_active_context), 
+                  bv_constant(get_word_value(sword_from_mergeable_context))
                 )
               );
               // 'delete' the value since it does not need to be merged again
-              set_word_address(sword2, -1);
+              set_word_address(sword_from_mergeable_context, -1);
             }
           } else {
-            if (get_word_symbolic(sword2) != (char*) 0) {
+            if (get_word_symbolic(sword_from_mergeable_context) != (char*) 0) {
               // merge concrete value and symbolic value
-              set_word_symbolic(sword1, 
+              set_word_symbolic(sword_from_active_context, 
                 smt_ternary("ite", 
-                  get_path_condition(context1), 
-                  bv_constant(get_word_value(sword1)), 
-                  get_word_symbolic(sword2)
+                  get_path_condition(active_context), 
+                  bv_constant(get_word_value(sword_from_active_context)), 
+                  get_word_symbolic(sword_from_mergeable_context)
                 )
               );
-              set_word_address(sword2, -1);
+              set_word_address(sword_from_mergeable_context, -1);
             } else {
-              if (get_word_value(sword1) != get_word_value(sword2)) {
+              if (get_word_value(sword_from_active_context) != get_word_value(sword_from_mergeable_context)) {
                 // merge concrete values if they are different
-                set_word_symbolic(sword1, 
+                set_word_symbolic(sword_from_active_context, 
                   smt_ternary("ite", 
-                    get_path_condition(context1), 
-                    bv_constant(get_word_value(sword1)),
-                    bv_constant(get_word_value(sword2))
+                    get_path_condition(active_context), 
+                    bv_constant(get_word_value(sword_from_active_context)),
+                    bv_constant(get_word_value(sword_from_mergeable_context))
                   )
                 );
-                set_word_address(sword2, -1);
+                set_word_address(sword_from_mergeable_context, -1);
               }
             }
           }
         }
 
-        sword2 = get_next_word(sword2);
+        sword_from_mergeable_context = get_next_word(sword_from_mergeable_context);
       }
     }
-  sword1 = get_next_word(sword1);
+  sword_from_active_context = get_next_word(sword_from_active_context);
   }
 
-  set_symbolic_memory(context1, symbolic_memory);  
+  set_symbolic_memory(active_context, symbolic_memory);  
 
   i = 0;
   while (i < NUMBEROFREGISTERS) {
-    if (*(get_symbolic_regs(context1) + i) != 0) {
-      if (*(get_symbolic_regs(context2) + i) != 0) {
-        if (*(get_symbolic_regs(context1) + i) != *(get_symbolic_regs(context2) + i)) {
+    if (*(get_symbolic_regs(active_context) + i) != 0) {
+      if (*(get_symbolic_regs(mergeable_context) + i) != 0) {
+        if (*(get_symbolic_regs(active_context) + i) != *(get_symbolic_regs(mergeable_context) + i)) {
           // merge symbolic values if they are different
-          *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), (char*) *(get_symbolic_regs(context1) + i), (char*) *(get_symbolic_regs(context2) + i));
+          *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(active_context), (char*) *(get_symbolic_regs(active_context) + i), (char*) *(get_symbolic_regs(mergeable_context) + i));
         }
       } else {
         // merge symbolic value and concrete value
-        *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), (char*) *(get_symbolic_regs(context1) + i), bv_constant(*(get_regs(context2) + i)));
+        *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(active_context), (char*) *(get_symbolic_regs(active_context) + i), bv_constant(*(get_regs(mergeable_context) + i)));
       }
     } else {
-      if (*(get_symbolic_regs(context2) + i) != 0) {
+      if (*(get_symbolic_regs(mergeable_context) + i) != 0) {
         // merge concrete value and symbolic value
-        *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), bv_constant(*(get_regs(context1) + i)), (char*) *(get_symbolic_regs(context2) + i));
+        *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(active_context), bv_constant(*(get_regs(active_context) + i)), (char*) *(get_symbolic_regs(mergeable_context) + i));
       } else {
-        if (*(get_regs(context1) + i) != *(get_regs(context2) + i)) {
+        if (*(get_regs(active_context) + i) != *(get_regs(mergeable_context) + i)) {
           // merge concrete values if they are different
-          *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(context1), bv_constant(*(get_regs(context1) + i)), bv_constant(*(get_regs(context2) + i)));
+          *(reg_sym + i) = (uint64_t) smt_ternary("ite", get_path_condition(active_context), bv_constant(*(get_regs(active_context) + i)), bv_constant(*(get_regs(mergeable_context) + i)));
         }
       }
     }
   
   i = i + 1;
   }
-  set_symbolic_regs(context1, reg_sym);
+  set_symbolic_regs(active_context, reg_sym);
 }
 
 uint64_t* merge_if_possible_and_get_context(uint64_t* context) {
