@@ -7740,7 +7740,7 @@ uint64_t find_merge_location(uint64_t beq_imm) {
   original_pc = pc;
   original_imm = imm;
 
-  // examine last instruction before target location of jump instruction
+  // examine last instruction before target location of the beq instruction
   pc = pc + (beq_imm - INSTRUCTIONSIZE);
 
   // we need to know which instruction it is
@@ -7749,24 +7749,23 @@ uint64_t find_merge_location(uint64_t beq_imm) {
   
   if (is != JAL)
     // no jal instruction -> end of if without else branch
-    // merge directly at target location of jump instruction possible
+    // merge is directly at target location of the beq instruction possible
     merge_location = original_pc + beq_imm;
   else {
     if (signed_less_than(imm, 0) == 0) { 
       // jal with positive imm -> end of if with else branch
-      // we have to skip the else branch in order to merge later
+      // we have to skip the else branch in order to merge afterwards
       merge_location = pc + imm;
 
       pc = original_pc + INSTRUCTIONSIZE;
     }
     else
       // jal with negative imm -> end of loop body
-      // merge is only outside the loop possible
+      // merge is only outside of the loop possible
       merge_location = pc + INSTRUCTIONSIZE;
   }
 
-
-  // we need to check if we are inside a recursive function before we merge
+  // we need to check if we are inside of a recursion before we reach the merge location
   // if we are, we merge only when the recursion is finished
   while (pc != merge_location) {
     fetch();
