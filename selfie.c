@@ -1246,9 +1246,9 @@ uint64_t* get_mergeable_context();
 void      add_waiting_context(uint64_t* context);
 uint64_t* get_waiting_context();
 
-void      add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t merge_location);
-uint64_t  get_potential_recursive_merge_location(uint64_t prologue_start);
-uint64_t  is_potential_recursive_merge_location(uint64_t prologue_start);
+void      add_prologue_start_and_corresponding_merge_location(uint64_t prologue_start, uint64_t merge_location);
+uint64_t  get_merge_location_from_corresponding_prologue_start(uint64_t prologue_start);
+uint64_t  is_start_of_procedure_prologue(uint64_t prologue_start);
 
 void      merge(uint64_t* active_context, uint64_t* mergeable_context, uint64_t location);
 void      merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context);
@@ -1271,13 +1271,13 @@ uint64_t* reg_sym = (uint64_t*) 0; // symbolic values in registers as strings in
 char*    smt_name = (char*) 0; // name of SMT-LIB file
 uint64_t smt_fd   = 0;         // file descriptor of open SMT-LIB file
 
-uint64_t* mergeable_contexts                  = (uint64_t*) 0; // contexts that have reached their merge location
-uint64_t* waiting_contexts                    = (uint64_t*) 0; // contexts that were created at a symbolic beq instruction and are waiting to be executed
-uint64_t* current_mergeable_context           = (uint64_t*) 0; // current context with which the active context can possibly be merged
-uint64_t* potential_recursive_merge_locations = (uint64_t*) 0; // stack which stores merge locations of potential recursive functions
+uint64_t* mergeable_contexts                          = (uint64_t*) 0; // contexts that have reached their merge location
+uint64_t* waiting_contexts                            = (uint64_t*) 0; // contexts that were created at a symbolic beq instruction and are waiting to be executed
+uint64_t* current_mergeable_context                   = (uint64_t*) 0; // current context with which the active context can possibly be merged
+uint64_t* prologues_and_corresponding_merge_locations = (uint64_t*) 0; // stack which stores possible function prologues and their corresponding merge locations
 
 uint64_t in_recursion = 0;
-uint64_t potential_recursive_merge_location = 0;
+uint64_t prologue_and_corresponding_merge_location = 0;
 uint64_t prologue_start = 0;
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
@@ -7772,9 +7772,9 @@ uint64_t find_merge_location(uint64_t beq_imm) {
     decode();
 
     if (is == JAL)
-      if (is_potential_recursive_merge_location(pc + imm)) {
+      if (is_start_of_procedure_prologue(pc + imm)) {
         in_recursion = 1;
-        merge_location = get_potential_recursive_merge_location(pc + imm) + 2 * INSTRUCTIONSIZE;
+        merge_location = get_merge_location_from_corresponding_prologue_start(pc + imm) + 2 * INSTRUCTIONSIZE;
       }
 
     pc = pc + INSTRUCTIONSIZE;
@@ -7833,10 +7833,10 @@ uint64_t* get_waiting_context() {
   return (uint64_t*) *(head + 1);
 }
 
-void add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t merge_location) {
+void add_prologue_start_and_corresponding_merge_location(uint64_t prologue_start, uint64_t merge_location) {
   uint64_t* entry;
 
-  entry = potential_recursive_merge_locations;
+  entry = prologues_and_corresponding_merge_locations;
 
   // do not add duplicates
   while (entry) {
@@ -7848,18 +7848,18 @@ void add_potential_recursive_merge_location(uint64_t prologue_start, uint64_t me
 
   entry = smalloc(3 * SIZEOFUINT64STAR);
 
-  *(entry + 0) = (uint64_t) potential_recursive_merge_locations;
+  *(entry + 0) = (uint64_t) prologues_and_corresponding_merge_locations;
   *(entry + 1) = (uint64_t) prologue_start;
   *(entry + 2) = (uint64_t) merge_location;
 
 
-  potential_recursive_merge_locations = entry;
+  prologues_and_corresponding_merge_locations = entry;
 }
 
-uint64_t get_potential_recursive_merge_location(uint64_t prologue_start) {
+uint64_t get_merge_location_from_corresponding_prologue_start(uint64_t prologue_start) {
   uint64_t* entry;
 
-  entry = potential_recursive_merge_locations;
+  entry = prologues_and_corresponding_merge_locations;
 
   while (entry) {
     if (*(entry + 1) == prologue_start)
@@ -7871,10 +7871,10 @@ uint64_t get_potential_recursive_merge_location(uint64_t prologue_start) {
   return -1;
 }
 
-uint64_t is_potential_recursive_merge_location(uint64_t prologue_start) {
+uint64_t is_start_of_procedure_prologue(uint64_t prologue_start) {
   uint64_t* entry;
 
-  entry = potential_recursive_merge_locations;
+  entry = prologues_and_corresponding_merge_locations;
 
   while (entry) {
     if (*(entry + 1) == prologue_start)
@@ -7891,8 +7891,8 @@ void merge(uint64_t* active_context, uint64_t* mergeable_context, uint64_t locat
   print_code_context_for_instruction(location);
   println();
 
-  if (potential_recursive_merge_locations != (uint64_t*) 0)
-    if (get_pc(active_context) == *(potential_recursive_merge_locations + 2))
+  if (prologues_and_corresponding_merge_locations != (uint64_t*) 0)
+    if (get_pc(active_context) == *(prologues_and_corresponding_merge_locations + 2))
       // we have finished the recursion
       in_recursion = 0;
 
@@ -8487,16 +8487,18 @@ void execute_symbolically() {
             fetch();
             decode();
 
+            // note: this check is not completely sufficient to determine a prologue of a procedure
+            // we would still have to check the registers, however, for the sake of simplicity this has been omitted
+            // we assume that we have identified a prologue of a procedure
             if (is == ADDI) {
-              // this may be the prologue of a function
               if (in_recursion == 0)
-                potential_recursive_merge_location = pc_before_jal + 2 * INSTRUCTIONSIZE;
+                prologue_and_corresponding_merge_location = pc_before_jal + 2 * INSTRUCTIONSIZE;
               else
                 // do not change the merge location since we only merge when the recursion is finished
-                potential_recursive_merge_location = *(potential_recursive_merge_locations + 2);
+                prologue_and_corresponding_merge_location = *(prologues_and_corresponding_merge_locations + 2);
                 
              prologue_start = pc_after_jal;
-             add_potential_recursive_merge_location(prologue_start, potential_recursive_merge_location);
+             add_prologue_start_and_corresponding_merge_location(prologue_start, prologue_and_corresponding_merge_location);
             }
           }
         }
