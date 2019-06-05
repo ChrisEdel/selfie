@@ -1278,8 +1278,9 @@ uint64_t smt_fd   = 0;         // file descriptor of open SMT-LIB file
 
 uint64_t* mergeable_contexts                          = (uint64_t*) 0; // contexts that have reached their merge location
 uint64_t* waiting_contexts                            = (uint64_t*) 0; // contexts that were created at a symbolic beq instruction and are waiting to be executed
-uint64_t* current_mergeable_context                   = (uint64_t*) 0; // current context with which the active context can possibly be merged
 uint64_t* prologues_and_corresponding_merge_locations = (uint64_t*) 0; // stack which stores possible function prologues and their corresponding merge locations
+
+uint64_t* current_mergeable_context                   = (uint64_t*) 0; // current context with which the active context can possibly be merged
 
 uint64_t in_recursion = 0;
 uint64_t prologue_and_corresponding_merge_location = 0;
@@ -7437,19 +7438,19 @@ void constrain_beq() {
     add_waiting_context(copy_context(current_context, pc + imm, smt_binary("and", pvar, bvar), max_execution_depth - timer));
 
     path_condition = smt_binary("and", pvar, smt_unary("not", bvar));
+
     set_merge_location(current_context, find_merge_location(imm));
   
     // check if a context is waiting to be merged
     if (current_mergeable_context != (uint64_t*) 0) {
-      // we cannot merge with this one (yet), so we add it back to the stack
-      // of mergeable contexts
+      // we cannot merge with this one (yet), so we add it back to the stack of mergeable contexts
       add_mergeable_context(current_mergeable_context);
       current_mergeable_context = (uint64_t*) 0;
     }
 
     pc = pc + INSTRUCTIONSIZE;
   } else {
-    // if the limit of symbolic beq instructions is reached, the path still continues until 
+    // if the limit of symbolic beq instructions is reached, the path still continues until it has reached its 
     // maximal execution depth, but only by following the true case of the next encountered symbolic beq instructions
     path_condition = smt_binary("and", pvar, bvar);
   
@@ -7937,7 +7938,7 @@ uint64_t find_merge_location(uint64_t beq_imm) {
     if (is == JAL)
       if (is_start_of_procedure_prologue(pc + imm)) {
         in_recursion = 1;
-        merge_location = get_merge_location_from_corresponding_prologue_start(pc + imm) + 2 * INSTRUCTIONSIZE;
+        merge_location = get_merge_location_from_corresponding_prologue_start(pc + imm);
       }
 
     pc = pc + INSTRUCTIONSIZE;
@@ -8656,7 +8657,7 @@ void execute_symbolically() {
             // we assume that we have identified a prologue of a procedure
             if (is == ADDI) {
               if (in_recursion == 0)
-                prologue_and_corresponding_merge_location = pc_before_jal + 2 * INSTRUCTIONSIZE;
+                prologue_and_corresponding_merge_location = pc_before_jal + 4 * INSTRUCTIONSIZE;
               else
                 // do not change the merge location since we only merge when the recursion is finished
                 prologue_and_corresponding_merge_location = *(prologues_and_corresponding_merge_locations + 2);
