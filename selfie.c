@@ -7922,8 +7922,7 @@ uint64_t find_merge_location(uint64_t beq_imm) {
       merge_location = pc + imm;
 
       pc = original_pc + INSTRUCTIONSIZE;
-    }
-    else
+    } else
       // jal with negative imm -> end of loop body
       // merge is only outside of the loop possible
       merge_location = pc + INSTRUCTIONSIZE;
@@ -8016,7 +8015,6 @@ void add_prologue_start_and_corresponding_merge_location(uint64_t prologue_start
   *(entry + 1) = (uint64_t) prologue_start;
   *(entry + 2) = (uint64_t) merge_location;
 
-
   prologues_and_corresponding_merge_locations = entry;
 }
 
@@ -8083,7 +8081,7 @@ void merge_symbolic_store(uint64_t* active_context, uint64_t* mergeable_context)
   sword_from_active_context = symbolic_memory;
   // merging the symbolic memory
   while (sword_from_active_context) {
-    // check if the word has not already been 'deleted' (note: 'deleted' would mean an virtual address of -1)
+    // check if the word has not already been 'deleted' (note: 'deleted' would mean a virtual address of -1)
     if (get_word_address(sword_from_active_context) != (uint64_t) -1) {
       sword_from_mergeable_context = get_symbolic_memory(mergeable_context);
 
@@ -8258,13 +8256,13 @@ uint64_t* merge_if_possible_and_get_next_context(uint64_t* context) {
       }
     }
 
-    if(mergeable == 0)
-      if(pauseable == 0)
+    if (mergeable == 0)
+      if (pauseable == 0)
         merge_not_finished = 0;
   }
 
   // check if there are contexts which have been paused and were not merged yet
-  if(context == (uint64_t*) 0)
+  if (context == (uint64_t*) 0)
     context = get_mergeable_context();
 
   return context;
@@ -8628,7 +8626,7 @@ void execute_symbolically() {
 
     pc_after_jal = pc;
 
-    // we need to check if we get into a recursion
+    // we need to check if we jump into a recursion
     fetch();
     decode();
 
