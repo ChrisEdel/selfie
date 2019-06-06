@@ -8034,18 +8034,7 @@ uint64_t get_merge_location_from_corresponding_prologue_start(uint64_t prologue_
 }
 
 uint64_t is_start_of_procedure_prologue(uint64_t prologue_start) {
-  uint64_t* entry;
-
-  entry = prologues_and_corresponding_merge_locations;
-
-  while (entry) {
-    if (*(entry + 1) == prologue_start)
-      return 1;
-
-    entry = (uint64_t*) *(entry + 0);
-  }
-
-  return 0;
+  return (get_merge_location_from_corresponding_prologue_start(prologue_start) != (uint64_t) -1);
 }
 
 void merge(uint64_t* active_context, uint64_t* mergeable_context, uint64_t location) {
