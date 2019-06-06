@@ -8653,16 +8653,14 @@ void execute_symbolically() {
             // note: this check is not completely sufficient to determine a prologue of a procedure
             // we would still have to check the registers, however, for the sake of simplicity this has been omitted
             // we assume that we have identified a prologue of a procedure
-            if (is == ADDI) {
-              if (in_recursion == 0)
+            if (is == ADDI)
+              // if we are already in a recursion, we do not change the merge location since we only merge when the recursion is finished
+              if (in_recursion == 0) {
                 prologue_and_corresponding_merge_location = pc_before_jal + 4 * INSTRUCTIONSIZE;
-              else
-                // do not change the merge location since we only merge when the recursion is finished
-                prologue_and_corresponding_merge_location = *(prologues_and_corresponding_merge_locations + 2);
-                
-             prologue_start = pc_after_jal;
-             add_prologue_start_and_corresponding_merge_location(prologue_start, prologue_and_corresponding_merge_location);
-            }
+                prologue_start = pc_after_jal;
+                add_prologue_start_and_corresponding_merge_location(prologue_start, prologue_and_corresponding_merge_location);
+              }
+
           }
         }
       }
@@ -9691,8 +9689,6 @@ uint64_t monster(uint64_t* to_context) {
       exception = handle_exception(from_context);
 
       if (exception == EXIT) {
-        set_symbolic_memory(from_context, symbolic_memory);
-
         // if a context is currently waiting to be merged, we need to switch to this one
         if (current_mergeable_context != (uint64_t*) 0) {
           // update the merge location, so the 'new' context can be merged later
@@ -9730,8 +9726,6 @@ uint64_t monster(uint64_t* to_context) {
           return EXITCODE_NOERROR;
         }
       } else if (exception == MERGE) {
-        set_symbolic_memory(from_context, symbolic_memory);
-
         to_context = merge_if_possible_and_get_next_context(get_waiting_context());
 
         timeout = max_execution_depth - get_execution_depth(to_context);
